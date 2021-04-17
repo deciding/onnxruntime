@@ -8,6 +8,8 @@
 #include "core/graph/constants.h"
 #include "core/framework/op_kernel.h"
 #include "core/framework/sparse_tensor.h"
+#include "core/framework/sparse_cooformat_rep.h"
+#include "core/framework/sparse_crcsformat_rep.h"
 #include "core/framework/tensorprotoutils.h"
 
 #include "core/graph/model.h"
@@ -102,14 +104,18 @@ This operator constructs a sparse tensor from three tensors that provide a COO
       const TensorShape& ind_shape = indices.Shape();
       const TensorShape& shape_shape = shape_tensor.Shape();
 
-      auto nnz = val_shape.Size();
-      auto numdims = shape_shape.Size();
+      const auto nnz = val_shape.Size();
+      const auto numdims = shape_shape.Size();
 
       ORT_ENFORCE(val_shape.NumDimensions() == 1, "Values must be a 1-dimensional tensor.");
-
-      ORT_ENFORCE(ind_shape.NumDimensions() == 2, "Indices must be a 2-dimensional tensor.");
-      ORT_ENFORCE(ind_shape[0] == nnz, "Indices must have [NNZ,d] shape.");
-      ORT_ENFORCE(ind_shape[1] == numdims, "Indices must have [NNZ,d] shape.");
+      ORT_ENFORCE(ind_shape.NumDimensions() == 1U || ind_shape.NumDimensions() == 2U,
+                  "Indices must be a 1-D or 2-D tensor.");
+      if (ind_shape.NumDimensions() == 1) {
+        ORT_ENFORCE(ind_shape[0] == nnz, "Indices must have [NNZ] shape.");
+      } else {
+        ORT_ENFORCE(ind_shape[0] == nnz, "Indices must have [NNZ,2] shape.");
+        ORT_ENFORCE(ind_shape[1] == 2U, "Indices must have [NNZ,2] shape.");
+      }
 
       ORT_ENFORCE(shape_shape.NumDimensions() == 1, "Shape must be a 1-dimensional tensor.");
 
@@ -117,9 +123,12 @@ This operator constructs a sparse tensor from three tensors that provide a COO
 
       SparseTensor* output = ctx->Output(0, static_cast<size_t>(nnz), shape);
       ORT_ENFORCE(output != nullptr);
+      SparseCooFomatRep* output_rep = nullptr;
+      const bool linearized_indices = indices.Shape().NumDimensions() == 1;
+      ORT_ENFORCE(output->RepBuilder<SparseCooBuilder>().GetOrCreate(linearized_indices, output_rep).IsOK());
 
-      memcpy(output->MutableValues().MutableData<int64_t>(), values.Data<int64_t>(), nnz * sizeof(int64_t));
-      memcpy(output->MutableIndices().MutableData<int64_t>(), indices.Data<int64_t>(), nnz * numdims * sizeof(int64_t));
+      memcpy(output->MutableValues().MutableData<int64_t>(), values.Data<int64_t>(), values.SizeInBytes());
+      memcpy(output_rep->MutableIndices().MutableData<int64_t>(), indices.Data<int64_t>(), indices.SizeInBytes());
 
       return Status::OK();
     }
@@ -174,9 +183,9 @@ This operator applies the Abs op element-wise to the input sparse-tensor.
       ORT_ENFORCE(ctx->InputCount() == 1, "Expecting 1 input");
 
       const SparseTensor* input = ctx->Input<SparseTensor>(0);
-      auto* input_values = input->Values().Data<int64_t>();
-      auto nnz = input->NumValues();
-      auto& shape = input->Shape();
+      const auto* input_values = input->Values().Data<int64_t>();
+      const auto nnz = input->NumValues();
+      const auto& shape = input->Shape();
 
       // Allocate/get output-tensor:
       SparseTensor* output = ctx->Output(0, nnz, shape);
@@ -186,11 +195,16 @@ This operator applies the Abs op element-wise to the input sparse-tensor.
       for (size_t i = 0; i < nnz; ++i)
         output_values[i] = std::abs(input_values[i]);
 
+      const auto* input_rep = input->GetRep<SparseCooFomatRep>();
+      SparseCooFomatRep* output_rep = nullptr;
+      const bool linearized_indices = input_rep->Indices().Shape().NumDimensions() == 1;
+      ORT_ENFORCE(output->RepBuilder<SparseCooBuilder>().GetOrCreate(linearized_indices, output_rep).IsOK());
+
       // Currently, there is no way to share the indices/shape between two sparse-tensors.
       // So, we copy indices/shape from input to output.
       // TODO: Extend allocation-planner to enable such sharing.
-      const auto& input_indices = input->Indices();
-      memcpy(output->MutableIndices().MutableData<int64_t>(), input_indices.Data<int64_t>(), input_indices.SizeInBytes());
+      const auto& input_indices = input_rep->Indices();
+      memcpy(output_rep->MutableIndices().MutableData<int64_t>(), input_indices.Data<int64_t>(), input_indices.SizeInBytes());
       return Status::OK();
     }
   };
@@ -243,7 +257,7 @@ struct SparseToValues {
       ORT_ENFORCE(ctx->InputCount() == 1, "Expecting a single SparseTensorSample input");
       const SparseTensor* sparse_input = ctx->Input<SparseTensor>(0);
       const auto* values = sparse_input->Values().Data<int64_t>();
-      auto nnz = static_cast<int64_t>(sparse_input->NumValues());
+      auto nnz = sparse_input->Values().Shape().Size();
 
       TensorShape output_shape{nnz};
 
@@ -251,7 +265,7 @@ struct SparseToValues {
       int64_t* output_data = output->MutableData<int64_t>();
       ORT_ENFORCE(output_data != nullptr);
 
-      memcpy(output_data, values, nnz * sizeof(int64_t));
+      memcpy(output_data, values, sparse_input->Values().SizeInBytes());
 
       return Status::OK();
     }
@@ -327,21 +341,21 @@ class SparseTensorTests : public testing::Test {
     EXPECT_TRUE(session_object.Initialize().IsOK());
   }
 
-  NodeArg* Sparse(std::string name) {
+  NodeArg* Sparse(const std::string& name) {
     types.push_back(*DataTypeImpl::GetSparseTensorType<int64_t>()->GetTypeProto());
     Graph& graph = model->MainGraph();
     auto& arg = graph.GetOrCreateNodeArg(name, &types.back());
     return &arg;
   }
 
-  NodeArg* Dense(std::string name) {
+  NodeArg* Dense(const std::string& name) {
     types.push_back(*DataTypeImpl::GetTensorType<int64_t>()->GetTypeProto());
     Graph& graph = model->MainGraph();
     auto& arg = graph.GetOrCreateNodeArg(name, &types.back());
     return &arg;
   }
 
-  void Node(std::string op, const std::vector<NodeArg*> inputs, const std::vector<NodeArg*> outputs) {
+  void Node(const std::string& op, const std::vector<NodeArg*> inputs, const std::vector<NodeArg*> outputs) {
     Graph& graph = model->MainGraph();
     auto& node = graph.AddNode("", op, "", inputs, outputs, nullptr, onnxruntime::kMLDomain);
     node.SetExecutionProviderType(onnxruntime::kCpuExecutionProvider);
@@ -449,7 +463,7 @@ TEST_F(SparseTensorTests, Test1) {
 
   // Run the model
   AddInput(values, {-99, 2});
-  AddInput(indices, {1, 4}, {2, 1});
+  AddInput(indices, {1, 4}, {2});
   AddInput(shape, {5});
   ExpectOutput(output, {99, 2});
   RunTest();
@@ -497,6 +511,98 @@ TEST_F(SparseTensorTests, Test2) {
   AddInput(shape, {5, 5});
   ExpectOutput(output, {99, 2});
   RunTest();
+}
+
+TEST(SparseCrcsFormatTests, Test1) {
+  //const std::vector<float> input_data = {
+  //    0, 1, 2, 0, 0, 0, 3, 4, 5,
+  //    6, 7, 8, 0, 0, 0, 9, 10, 11,
+  //    12, 13, 14, 0, 0, 0, 15, 16, 17,
+  //    0, 0, 0, 18, 19, 20, 21, 22, 23,
+  //    0, 0, 0, 24, 25, 26, 27, 28, 29,
+  //    0, 0, 0, 30, 31, 32, 33, 34, 35,
+  //    36, 37, 38, 39, 40, 41, 0, 0, 0,
+  //    42, 43, 44, 45, 46, 47, 0, 0, 0,
+  //    48, 49, 50, 51, 52, 53, 0, 0, 0};
+
+  TensorShape dense_shape{9, 9};
+
+  const std::vector<float> values = {
+      1, 2, 3, 4, 5,
+      6, 7, 8, 9, 10, 11,
+      12, 13, 14, 15, 16, 17,
+      18, 19, 20, 21, 22, 23,
+      24, 25, 26, 27, 28, 29,
+      30, 31, 32, 33, 34, 35,
+      36, 37, 38, 39, 40, 41,
+      42, 43, 44, 45, 46, 47,
+      48, 49, 50, 51, 52, 53};
+
+  // Row major
+  const std::vector<int64_t> inner_indices = {
+      1, 2, 6, 7, 8,
+      0, 1, 2, 6, 7, 8,
+      0, 1, 2, 6, 7, 8,
+      3, 4, 5, 6, 7, 8,
+      3, 4, 5, 6, 7, 8,
+      3, 4, 5, 6, 7, 8,
+      0, 1, 2, 3, 4, 5,
+      0, 1, 2, 3, 4, 5,
+      0, 1, 2, 3, 4, 5};
+
+  ASSERT_EQ(values.size(), inner_indices.size());
+
+  const std::vector<int64_t> outer_indices = {
+      0, 5, 11, 17, 23, 29, 35, 41, 47};
+
+  ASSERT_EQ(9U, outer_indices.size());
+
+  // Test owning instance
+  auto default_allocator = TestCPUExecutionProvider()->GetAllocator(0, OrtMemTypeDefault);
+  SparseTensor tensor_alloc(DataTypeImpl::GetType<float>(), dense_shape, values.size(), default_allocator);
+  ASSERT_TRUE(tensor_alloc.OwnsBuffer());
+  ASSERT_EQ(values.size(), tensor_alloc.NumValues());
+  ASSERT_EQ(tensor_alloc.Shape(), dense_shape);
+  memcpy(tensor_alloc.MutableValues().MutableData<float>(), values.data(), values.size() * sizeof(float));
+
+  SparseCrcsFormatRep* rep = nullptr;
+  ASSERT_TRUE(tensor_alloc.RepBuilder<SparseCrcsBuilder>().GetOrCreate(SparseCrcsFormatRep::kRowMajor,
+                                                                       {static_cast<int64_t>(inner_indices.size())},
+                                                                       {static_cast<int64_t>(outer_indices.size())}, rep)
+                  .IsOK());
+  ASSERT_NE(rep, nullptr);
+  {
+    Tensor& inner = rep->MutableInner();
+    Tensor& outer = rep->MutableOuter();
+    ASSERT_EQ(inner.Shape().Size(), static_cast<int64_t>(inner_indices.size()));
+    ASSERT_EQ(outer.Shape().Size(), static_cast<int64_t>(outer_indices.size()));
+    memcpy(inner.MutableData<int64_t>(), inner_indices.data(), inner_indices.size() * sizeof(int64_t));
+    memcpy(outer.MutableData<int64_t>(), outer_indices.data(), outer_indices.size() * sizeof(int64_t));
+  }
+
+  OrtMemoryInfo mem_info;
+  SparseTensor tensor_wrap(DataTypeImpl::GetType<float>(), dense_shape, values.size(),
+                           const_cast<float*>(values.data()), mem_info);
+  ASSERT_FALSE(tensor_wrap.OwnsBuffer());
+  ASSERT_EQ(values.size(), tensor_wrap.NumValues());
+  ASSERT_EQ(tensor_wrap.Shape(), dense_shape);
+
+  rep = nullptr;
+  ASSERT_TRUE(tensor_wrap.RepBuilder<SparseCrcsBuilder>().GetOrCreate(SparseCrcsFormatRep::kRowMajor,
+                                                                      {static_cast<int64_t>(inner_indices.size())},
+                                                                      {static_cast<int64_t>(outer_indices.size())},
+                                                                      const_cast<int64_t*>(inner_indices.data()),
+                                                                      const_cast<int64_t*>(outer_indices.data()),
+                                                                      rep).IsOK());
+  ASSERT_NE(rep, nullptr);
+
+  ASSERT_EQ(0, memcmp(tensor_alloc.Values().Data<float>(), tensor_wrap.Values().Data<float>(), values.size() * sizeof(float)));
+  ASSERT_EQ(0, memcmp(tensor_alloc.GetRep<SparseCrcsFormatRep>()->Inner().Data<int64_t>(),
+         tensor_wrap.GetRep<SparseCrcsFormatRep>()->Inner().Data<int64_t>(),
+         inner_indices.size() * sizeof(int64_t)));
+  ASSERT_EQ(0, memcmp(tensor_alloc.GetRep<SparseCrcsFormatRep>()->Outer().Data<int64_t>(),
+                      tensor_wrap.GetRep<SparseCrcsFormatRep>()->Outer().Data<int64_t>(),
+                      outer_indices.size() * sizeof(int64_t)));
 }
 
 // Code below depends on the values being size 4
@@ -1000,7 +1106,6 @@ static void TestDenseToSparseConversion(std::function<void(const std::vector<T>&
   TestDenseToSparseConversionValues<T>(inserter, checker);
   TestDenseAllZerosToSparseConversion<T>(inserter, checker);
 }
-
 
 TEST(SparseTensorConversionTests, TestDenseToSparseConversion) {
   TestDenseToSparseConversion<float>(
