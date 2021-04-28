@@ -941,7 +941,7 @@ struct ProviderLibrary {
       if (provider_)
         provider_->Shutdown();
 
-      Env::Default().UnloadDynamicLibrary(handle_);
+      //      Env::Default().UnloadDynamicLibrary(handle_);
       handle_ = nullptr;
       provider_ = nullptr;
       LOGS_DEFAULT(ERROR) << "(RyanHill) Shut down successful for " << filename_;
