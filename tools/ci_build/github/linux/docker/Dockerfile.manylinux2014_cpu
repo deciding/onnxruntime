@@ -1,5 +1,9 @@
 FROM quay.io/pypa/manylinux2014_x86_64:latest
 
+ENV DEVTOOLSET_ROOTPATH /opt/rh/devtoolset-10/root
+ENV PATH $DEVTOOLSET_ROOTPATH/usr/bin:$PATH
+ENV LD_LIBRARY_PATH $DEVTOOLSET_ROOTPATH/usr/lib64:$DEVTOOLSET_ROOTPATH/usr/lib:$DEVTOOLSET_ROOTPATH/usr/lib64/dyninst:$DEVTOOLSET_ROOTPATH/usr/lib/dyninst:/usr/local/lib64:/usr/local/lib
+
 ADD scripts /tmp/scripts
 RUN cd /tmp/scripts && /tmp/scripts/manylinux/install_centos.sh && /tmp/scripts/manylinux/install_deps.sh && rm -rf /tmp/scripts
 
