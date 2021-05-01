@@ -874,6 +874,7 @@ else()
   check_cxx_compiler_flag(-Wclass-memaccess HAS_CLASS_MEMACCESS)
   check_cxx_compiler_flag(-Wmaybe-uninitialized HAS_MAYBE_UNINITIALIZED)
   check_cxx_compiler_flag(-Wstrict-aliasing HAS_STRICT_ALIASING)
+  check_cxx_compiler_flag(-Wtype-limits HAS_TYPE_LIMITS)
 
   if(HAS_TAUTOLOGICAL_POINTER_COMPARE)
     #we may have extra null pointer checkings in debug build, it's not an issue
@@ -1005,6 +1006,10 @@ function(onnxruntime_set_compile_flags target_name)
         target_compile_options(${target_name} PRIVATE "$<$<COMPILE_LANGUAGE:CUDA>:-Wno-strict-aliasing>")
       endif()
     endif()
+	if(HAS_TYPE_LIMITS)
+	  #See: https://github.com/protocolbuffers/protobuf/issues/7514
+	  target_compile_options(${target_name} PRIVATE "$<$<COMPILE_LANGUAGE:CXX>:-Wno-type-limits>")
+	endif()
     foreach(ORT_FLAG ${ORT_WARNING_FLAGS})
       target_compile_options(${target_name} PRIVATE "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:--compiler-options ${ORT_FLAG}>" "$<$<NOT:$<COMPILE_LANGUAGE:CUDA>>:${ORT_FLAG}>")      
     endforeach()
