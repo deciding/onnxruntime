@@ -96,7 +96,7 @@ bool CudaCall(ERRTYPE retCode, const char* exprString, const char* libName, ERRT
       size_t hostname_len = 0;
       char* hostname = nullptr;
       if (-1 == _dupenv_s(&hostname, &hostname_len, "COMPUTERNAME"))
-        hostname = const_cast<char*>("?");
+        hostname = "?";
       else
         hostname_ptr.reset(hostname);
 #else
