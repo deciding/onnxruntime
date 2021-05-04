@@ -57,8 +57,8 @@ void sort_expected_and_actual_buffers(std::vector<T>& expected,
 
 struct CheckParams {
   bool sort_output_;
-  optional<float> absolute_error_;
-  optional<float> relative_error_;
+  std::optional<float> absolute_error_;
+  std::optional<float> relative_error_;
 };
 
 inline CheckParams make_params(const OpTester::Data& d) {
