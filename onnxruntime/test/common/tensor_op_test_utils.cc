@@ -7,7 +7,7 @@
 namespace onnxruntime {
 namespace test {
 
-RandomValueGenerator::RandomValueGenerator(optional<RandomSeedType> seed)
+RandomValueGenerator::RandomValueGenerator(std::optional<RandomSeedType> seed)
     : random_seed_{
           seed.has_value() ? seed.value() : static_cast<RandomSeedType>(GetTestRandomSeed())},
       generator_{random_seed_},

@@ -3,7 +3,7 @@
 
 #pragma once
 #include <memory>
-#include "core/common/optional.h"
+#include <optional>
 #include "core/common/path_string.h"
 #include "core/session/inference_session.h"
 #include "orttraining/core/framework/pipeline.h"
@@ -52,13 +52,13 @@ class TrainingSession : public InferenceSession {
    */
   struct TrainingConfiguration {
     // The path at which to save the intermediate model with the added loss function.
-    optional<PathString> model_with_loss_function_path{};
+    std::optional<PathString> model_with_loss_function_path{};
     // The path at which to save the model after applying the graph transformations.
-    optional<PathString> model_after_graph_transforms_path{};
+    std::optional<PathString> model_after_graph_transforms_path{};
     // The path at which to save the model with gradient graph added.
-    optional<PathString> model_with_gradient_graph_path{};
+    std::optional<PathString> model_with_gradient_graph_path{};
     // The path at which to save the intermediate model with the whole training graph.
-    optional<PathString> model_with_training_graph_path{};
+    std::optional<PathString> model_with_training_graph_path{};
 
     // The names of the weights to train.
     // If empty, a default set is used.
@@ -128,7 +128,7 @@ class TrainingSession : public InferenceSession {
     };
     // The mixed precision configuration.
     // If not provided, mixed precision is disabled.
-    optional<MixedPrecisionConfiguration> mixed_precision_config{};
+    std::optional<MixedPrecisionConfiguration> mixed_precision_config{};
 
     struct LossFunctionConfiguration {
       // The loss function configuration options.
@@ -137,15 +137,15 @@ class TrainingSession : public InferenceSession {
     // The loss function configuration.
     // If not provided, no loss function is added and an external one is expected.
     // Exactly one of loss_function_config or loss_name should be given.
-    optional<LossFunctionConfiguration> loss_function_config{};
+    std::optional<LossFunctionConfiguration> loss_function_config{};
     // The name of the external loss function's output.
     // Exactly one of loss_function_config or loss_name should be given.
-    optional<std::string> loss_name{};
+    std::optional<std::string> loss_name{};
 
     struct GistConfiguration {};
     // The GIST configuration.
     // If not provided, GIST is disabled.
-    optional<GistConfiguration> gist_config{};
+    std::optional<GistConfiguration> gist_config{};
 
     struct TensorboardConfiguration {
       // The summary name.
@@ -161,7 +161,7 @@ class TrainingSession : public InferenceSession {
     };
     // The TensorBoard configuration.
     // If not provided, TensorBoard output is disabled.
-    optional<TensorboardConfiguration> tensorboard_config{};
+    std::optional<TensorboardConfiguration> tensorboard_config{};
 
     struct OptimizerConfiguration {
       // The optimizer name.
@@ -188,12 +188,12 @@ class TrainingSession : public InferenceSession {
     };
     // The optimizer configuration.
     // If not provided, no optimizer is added.
-    optional<OptimizerConfiguration> optimizer_config{};
+    std::optional<OptimizerConfiguration> optimizer_config{};
 
     // optional initial states for optimizer
     // These states are partitioned wherever the weights are partitioned for eg in Zero, Megatron
     // This is loaded into the optimizer initializers when the optimizer graph is created
-    optional<OptimizerState> init_optimizer_states{};
+    std::optional<OptimizerState> init_optimizer_states{};
 
     // struct to describe a specific edge. An edge is not the same as a node_arg. Edge represents a connection between two operators.
     // For example, an operator A's output tensor T is connecting to another operator B's input, then this constructs
@@ -203,7 +203,7 @@ class TrainingSession : public InferenceSession {
     // corresponding partition.
     struct CutEdge {
       std::string node_arg_name;
-      optional<std::vector<std::string>> consumer_nodes;
+      std::optional<std::vector<std::string>> consumer_nodes;
 
       // If the edge is unique, i.e. only have one consumer node, or all the edges
       // with the same node_arg_name needs to be cut, specify the node_arg_name
@@ -234,12 +234,12 @@ class TrainingSession : public InferenceSession {
       std::map<std::string, int> op_id_to_stage;
 
       // The base path at which to save the intermediate partitioned input model (forward pass only).
-      optional<PathString> partitioned_model_path{};
+      std::optional<PathString> partitioned_model_path{};
     };
 
     // If pipeline is enabled, this field's has_value() returns true.
     // Otherwise, it returns false.
-    optional<PipelineConfiguration> pipeline_config{};
+    std::optional<PipelineConfiguration> pipeline_config{};
 
     struct GraphTransformerConfiguration {
       // Whether to enable GELU approximation which is faster but produces different results.
@@ -272,7 +272,7 @@ class TrainingSession : public InferenceSession {
     };
     // The mixed precision configuration output.
     // This is only set if mixed precision is enabled.
-    optional<MixedPrecisionConfigurationResult> mixed_precision_config_result;
+    std::optional<MixedPrecisionConfigurationResult> mixed_precision_config_result;
 
     struct OptimizerConfigurationResult {
       // The mapping of optimizer output key to graph output name.
@@ -280,7 +280,7 @@ class TrainingSession : public InferenceSession {
     };
     // The optimizer configuration output.
     // This is only set if an optimizer is added.
-    optional<OptimizerConfigurationResult> opt_config_result;
+    std::optional<OptimizerConfigurationResult> opt_config_result;
 
     // The names of pipeline events in model's input list.
     // If an event is not used, its name should be empty.
@@ -299,7 +299,7 @@ class TrainingSession : public InferenceSession {
 
     // The pipeline configuration output.
     // This is only set if an pipeline is enabled.
-    optional<PipelineConfigurationResult> pipeline_config_result;
+    std::optional<PipelineConfigurationResult> pipeline_config_result;
 
     // Mapped initialized names after weight partitioning for example MegatronTransformer
     std::unordered_map<std::string, std::string> weight_name_map_after_graph_transform{};
@@ -428,8 +428,8 @@ class TrainingSession : public InferenceSession {
            And also in gradient_builder.cc, the gradient builder must have been registered.
   */
   common::Status ConfigureLossFunction(
-      const optional<std::string>& external_loss_name,
-      const optional<LossFunctionInfo>& loss_func_info,
+      const std::optional<std::string>& external_loss_name,
+      const std::optional<LossFunctionInfo>& loss_func_info,
       std::string* loss_scale_input_name,
       std::string& actual_loss_name);
 
@@ -450,8 +450,8 @@ class TrainingSession : public InferenceSession {
 
   virtual common::Status PartitionGraphForPipeline(
       const int32_t pipeline_stage_id,
-      const optional<TrainingConfiguration::PipelineConfiguration>& pipeline_config,
-      const optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
+      const std::optional<TrainingConfiguration::PipelineConfiguration>& pipeline_config,
+      const std::optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
       const std::unordered_set<std::string>& weight_names_to_train,
       std::unordered_set<std::string>& filtered_config_weight_names_to_train);
 
@@ -477,10 +477,10 @@ class TrainingSession : public InferenceSession {
   //  4. No event operator is inserted by other graph transform.
   virtual common::Status SetEventSynchronization(
       const int32_t pipeline_stage_id,
-      const optional<TrainingConfiguration::PipelineConfiguration>& pipeline_config,
-      const optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
+      const std::optional<TrainingConfiguration::PipelineConfiguration>& pipeline_config,
+      const std::optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
       const std::unordered_set<std::string>& weight_names_to_train,
-      optional<TrainingConfigurationResult::PipelineConfigurationResult>& pipeline_config_result);
+      std::optional<TrainingConfigurationResult::PipelineConfigurationResult>& pipeline_config_result);
 
   common::Status ApplyTransformationsToMainGraph(const std::unordered_set<std::string>& weights_to_train,
                                                  const TrainingConfiguration::GraphTransformerConfiguration& config);
@@ -521,20 +521,20 @@ class TrainingSession : public InferenceSession {
       OptimizerOutputKeyMap<std::string>& opt_graph_outputs);
 
   common::Status BuildLoss(
-      const optional<std::string>& external_loss_name,
+      const std::optional<std::string>& external_loss_name,
       std::string& loss_name,
-      const optional<TrainingConfiguration::LossFunctionConfiguration>& loss_function_config,
-      optional<std::string>& loss_scale_input_name);
+      const std::optional<TrainingConfiguration::LossFunctionConfiguration>& loss_function_config,
+      std::optional<std::string>& loss_scale_input_name);
 
   virtual common::Status BuildLossAndLossScaling(
       const int32_t pipeline_stage_id,
-      const optional<std::string>& external_loss_name,
-      const optional<TrainingConfiguration::MixedPrecisionConfiguration>& mixed_precision_config,
-      const optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
-      const optional<TrainingConfiguration::LossFunctionConfiguration>& loss_function_config,
+      const std::optional<std::string>& external_loss_name,
+      const std::optional<TrainingConfiguration::MixedPrecisionConfiguration>& mixed_precision_config,
+      const std::optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
+      const std::optional<TrainingConfiguration::LossFunctionConfiguration>& loss_function_config,
       std::string& loss_name,
-      optional<std::string>& loss_scale_input_name,
-      optional<TrainingConfigurationResult::MixedPrecisionConfigurationResult>& mixed_precision_config_result);
+      std::optional<std::string>& loss_scale_input_name,
+      std::optional<TrainingConfigurationResult::MixedPrecisionConfigurationResult>& mixed_precision_config_result);
 
   /** Enable mixed precision training
   @param weights_to_train a set of weights to be training.
@@ -582,9 +582,9 @@ class TrainingSession : public InferenceSession {
   std::unordered_map<std::string, TrainingSession::PartitionInfo> weight_partition_info_;
 
   bool is_mixed_precision_enabled_;
-  optional<std::string> external_loss_name_;
+  std::optional<std::string> external_loss_name_;
   std::unique_ptr<ILossFunction> loss_graph_builder_;
-  optional<LossFunctionInfo> loss_function_info_;
+  std::optional<LossFunctionInfo> loss_function_info_;
 
   std::unordered_set<std::string> dropout_eval_feeds_;
   OptimizerGraphConfig opt_graph_config_;
@@ -605,27 +605,27 @@ class PipelineTrainingSession final : public TrainingSession {
  protected:
   common::Status PartitionGraphForPipeline(
       const int32_t pipeline_stage_id,
-      const optional<TrainingConfiguration::PipelineConfiguration>& pipeline_config,
-      const optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
+      const std::optional<TrainingConfiguration::PipelineConfiguration>& pipeline_config,
+      const std::optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
       const std::unordered_set<std::string>& weight_names_to_train,
       std::unordered_set<std::string>& filtered_config_weight_names_to_train) override;
 
   common::Status SetEventSynchronization(
       const int32_t pipeline_stage_id,
-      const optional<TrainingConfiguration::PipelineConfiguration>& pipeline_config,
-      const optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
+      const std::optional<TrainingConfiguration::PipelineConfiguration>& pipeline_config,
+      const std::optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
       const std::unordered_set<std::string>& weight_names_to_train,
-      optional<TrainingConfigurationResult::PipelineConfigurationResult>& pipeline_config_result) override;
+      std::optional<TrainingConfigurationResult::PipelineConfigurationResult>& pipeline_config_result) override;
 
   common::Status BuildLossAndLossScaling(
       const int32_t pipeline_stage_id,
-      const optional<std::string>& external_loss_name,
-      const optional<TrainingConfiguration::MixedPrecisionConfiguration>& mixed_precision_config,
-      const optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
-      const optional<TrainingConfiguration::LossFunctionConfiguration>& loss_function_config,
+      const std::optional<std::string>& external_loss_name,
+      const std::optional<TrainingConfiguration::MixedPrecisionConfiguration>& mixed_precision_config,
+      const std::optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
+      const std::optional<TrainingConfiguration::LossFunctionConfiguration>& loss_function_config,
       std::string& loss_name,
-      optional<std::string>& loss_scale_input_name,
-      optional<TrainingConfigurationResult::MixedPrecisionConfigurationResult>& mixed_precision_config_result) override;
+      std::optional<std::string>& loss_scale_input_name,
+      std::optional<TrainingConfigurationResult::MixedPrecisionConfigurationResult>& mixed_precision_config_result) override;
 
   // Set some PipelineContext fields based on configuration result
   // returned by TrainingSession::ConfigureForTraining.

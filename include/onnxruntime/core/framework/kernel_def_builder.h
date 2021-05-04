@@ -10,7 +10,7 @@
 #include <limits.h>
 
 #include "core/common/common.h"
-#include "core/common/optional.h"
+#include <optional>
 #include "core/graph/basic_types.h"
 #include "core/framework/data_types.h"
 #include "core/framework/allocator.h"
@@ -71,7 +71,7 @@ class KernelDef {
     return alias_map_;
   }
 
-  const optional<std::pair<int, int>>& VariadicAlias() const {
+  const std::optional<std::pair<int, int>>& VariadicAlias() const {
     return variadic_alias_offsets_;
   }
 
@@ -145,7 +145,7 @@ class KernelDef {
 
   // optional alternate type constraints to use to calculate the hash instead of default_type_constraints_
   // note: this provides a way to update the default type constraints while preserving the hash value
-  optional<std::map<std::string, std::vector<MLDataType>>> hash_type_constraints_;
+  std::optional<std::map<std::string, std::vector<MLDataType>>> hash_type_constraints_;
 
   // An element <i, j> means that output j reuses the memory of input i.
   std::vector<std::pair<int, int>> inplace_map_;
@@ -155,7 +155,7 @@ class KernelDef {
 
   // This variable stores <input_offset, output_offset> for the variadic alias mapping
   // output 'i + output_offset' is an alias of input 'i + input_offset' for all i >= 0
-  optional<std::pair<int, int>> variadic_alias_offsets_;
+  std::optional<std::pair<int, int>> variadic_alias_offsets_;
 
   // Require input tensors to be allocated contiguously.
   bool allocate_inputs_contiguously_ = false;

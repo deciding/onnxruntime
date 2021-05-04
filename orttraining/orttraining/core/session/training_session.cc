@@ -51,7 +51,7 @@ namespace {
 Status SetupOptimizerParams(
     const std::unordered_set<std::string>& weight_names_to_train,
     const std::unordered_map<std::string, NodeArg*>& fp32_weight_names_to_mixed_precision_node_args,
-    const optional<std::string>& loss_scale_input_name,
+    const std::optional<std::string>& loss_scale_input_name,
     const TrainingSession::TrainingConfiguration& config,
     const TrainingSession::OptimizerState& init_optimizer_states,
     OptimizerGraphConfig& opt_graph_config_result,
@@ -161,10 +161,10 @@ void TrainingSession::FilterUnusedWeights(const std::unordered_set<std::string>&
 const std::string TrainingSession::training_mode_string_ = "training_mode";
 
 Status TrainingSession::BuildLoss(
-    const optional<std::string>& external_loss_name,
+    const std::optional<std::string>& external_loss_name,
     std::string& loss_name,
-    const optional<TrainingConfiguration::LossFunctionConfiguration>& loss_function_config,
-    optional<std::string>& loss_scale_input_name) {
+    const std::optional<TrainingConfiguration::LossFunctionConfiguration>& loss_function_config,
+    std::optional<std::string>& loss_scale_input_name) {
   // If loss_name has been found in the graph
   // (e.g., one output of forward Send in pipeline parallel's partitioned graph),
   // there is no need to build loss. Only the last pipeline stage
@@ -173,10 +173,10 @@ Status TrainingSession::BuildLoss(
     return Status::OK();
   }
 
-  const optional<LossFunctionInfo> loss_function_info =
+  const std::optional<LossFunctionInfo> loss_function_info =
       loss_function_config.has_value()
           ? loss_function_config.value().loss_function_info
-          : optional<LossFunctionInfo>{};
+          : std::optional<LossFunctionInfo>{};
   ORT_RETURN_IF_ERROR(ConfigureLossFunction(
       external_loss_name, loss_function_info,
       loss_scale_input_name.has_value() ? &loss_scale_input_name.value() : nullptr, loss_name));
@@ -190,13 +190,13 @@ Status TrainingSession::BuildLoss(
 
 Status TrainingSession::BuildLossAndLossScaling(
     const int32_t pipeline_stage_id,
-    const optional<std::string>& external_loss_name,
-    const optional<TrainingConfiguration::MixedPrecisionConfiguration>& mixed_precision_config,
-    const optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
-    const optional<TrainingConfiguration::LossFunctionConfiguration>& loss_function_config,
+    const std::optional<std::string>& external_loss_name,
+    const std::optional<TrainingConfiguration::MixedPrecisionConfiguration>& mixed_precision_config,
+    const std::optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
+    const std::optional<TrainingConfiguration::LossFunctionConfiguration>& loss_function_config,
     std::string& loss_name,
-    optional<std::string>& loss_scale_input_name,
-    optional<TrainingConfigurationResult::MixedPrecisionConfigurationResult>& mixed_precision_config_result) {
+    std::optional<std::string>& loss_scale_input_name,
+    std::optional<TrainingConfigurationResult::MixedPrecisionConfigurationResult>& mixed_precision_config_result) {
   // Enable loss scale if mixed precision is enabled AND at pipeline last stage if pipeline is used.
   // We are currently making the assumption that no data parallelism is used together with model parallelism.
   // So we can check the last stage by checking the world_rank and world_size. Once DP and MP combination is
@@ -205,7 +205,7 @@ Status TrainingSession::BuildLossAndLossScaling(
                            mixed_precision_config.value().mixed_precision_type == MixedPrecisionDataType::FP16 &&
                            (pipeline_stage_id < 0 ||
                             (pipeline_stage_id + 1 == distributed_config.value().pipeline_parallel_size));
-  loss_scale_input_name = enable_loss_scale ? optional<std::string>{""} : optional<std::string>{};
+  loss_scale_input_name = enable_loss_scale ? std::optional<std::string>{""} : std::optional<std::string>{};
 
   ORT_RETURN_IF_ERROR(BuildLoss(external_loss_name,
                                 loss_name,
@@ -223,8 +223,8 @@ Status TrainingSession::BuildLossAndLossScaling(
 
 Status TrainingSession::PartitionGraphForPipeline(
     const int32_t pipeline_stage_id,
-    const optional<TrainingConfiguration::PipelineConfiguration>& pipeline_config,
-    const optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
+    const std::optional<TrainingConfiguration::PipelineConfiguration>& pipeline_config,
+    const std::optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
     const std::unordered_set<std::string>& /*weight_names_to_train*/,
     std::unordered_set<std::string>& /*filtered_config_weight_names_to_train*/) {
   if (!pipeline_config.has_value() || !pipeline_config.value().do_partition) {
@@ -265,10 +265,10 @@ Status TrainingSession::PartitionGraphForPipeline(
 
 Status TrainingSession::SetEventSynchronization(
     const int32_t pipeline_stage_id,
-    const optional<TrainingConfiguration::PipelineConfiguration>& pipeline_config,
-    const optional<TrainingConfiguration::DistributedConfiguration>& /*distributed_config*/,
+    const std::optional<TrainingConfiguration::PipelineConfiguration>& pipeline_config,
+    const std::optional<TrainingConfiguration::DistributedConfiguration>& /*distributed_config*/,
     const std::unordered_set<std::string>& weight_names_to_train,
-    optional<TrainingConfigurationResult::PipelineConfigurationResult>& pipeline_config_result) {
+    std::optional<TrainingConfigurationResult::PipelineConfigurationResult>& pipeline_config_result) {
   if (!pipeline_config.has_value()) {
     return Status::OK();
   }
@@ -384,7 +384,7 @@ Status TrainingSession::ConfigureForTraining(
     GetPipelineSendOutput(model_->MainGraph(), loss_name);
   }
 
-  optional<std::string> loss_scale_input_name;
+  std::optional<std::string> loss_scale_input_name;
 
   is_mixed_precision_enabled_ = config.mixed_precision_config.has_value();
 
@@ -617,9 +617,9 @@ static Status AddLossScaling(
 }
 
 static Status ConfigureLossFunctionInternal(
-    const optional<std::string>& external_loss_name,
+    const std::optional<std::string>& external_loss_name,
     ILossFunction* loss_graph_builder,
-    const optional<LossFunctionInfo>& loss_func_info,
+    const std::optional<LossFunctionInfo>& loss_func_info,
     Graph& graph,
     std::string* loss_scale_input_name,
     std::string& actual_loss_name) {
@@ -836,8 +836,8 @@ Status TrainingSession::AddTensorboard(const std::string& summary_name,
 }
 
 Status TrainingSession::ConfigureLossFunction(
-    const optional<std::string>& external_loss_name,
-    const optional<LossFunctionInfo>& loss_function_info,
+    const std::optional<std::string>& external_loss_name,
+    const std::optional<LossFunctionInfo>& loss_function_info,
     std::string* loss_scale_input_name,
     std::string& actual_loss_name) {
   external_loss_name_ = external_loss_name;
@@ -1016,8 +1016,8 @@ Status TrainingSession::Save(const PathString& model_uri, TrainingSession::SaveO
       new_model->MainGraph(), GetWeights(), GetSessionState().GetDataTransferMgr()));
 
   std::string actual_loss_name{};
-  optional<std::string> loss_scale_input_name =
-      is_mixed_precision_enabled_ ? optional<std::string>{""} : optional<std::string>{};
+  std::optional<std::string> loss_scale_input_name =
+      is_mixed_precision_enabled_ ? std::optional<std::string>{""} : std::optional<std::string>{};
 
   if (opt == TrainingSession::SaveOption::WITH_UPDATED_WEIGHTS_AND_LOSS_FUNC /* with weights and loss func*/ ||
       opt == TrainingSession::SaveOption::WITH_UPDATED_WEIGHTS_AND_LOSS_FUNC_AND_GRADIENTS /*with everything*/) {
@@ -1517,8 +1517,8 @@ Status PipelineTrainingSession::SetExtraDataDependency() {
 
 Status PipelineTrainingSession::PartitionGraphForPipeline(
     const int32_t pipeline_stage_id,
-    const optional<TrainingConfiguration::PipelineConfiguration>& pipeline_config,
-    const optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
+    const std::optional<TrainingConfiguration::PipelineConfiguration>& pipeline_config,
+    const std::optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
     const std::unordered_set<std::string>& weight_names_to_train,
     std::unordered_set<std::string>& filtered_config_weight_names_to_train) {
   ORT_ENFORCE(pipeline_context_.expected_output_names.empty(),
@@ -1581,10 +1581,10 @@ Status PipelineTrainingSession::PartitionGraphForPipeline(
 
 Status PipelineTrainingSession::SetEventSynchronization(
     const int32_t pipeline_stage_id,
-    const optional<TrainingConfiguration::PipelineConfiguration>& pipeline_config,
-    const optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
+    const std::optional<TrainingConfiguration::PipelineConfiguration>& pipeline_config,
+    const std::optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
     const std::unordered_set<std::string>& weight_names_to_train,
-    optional<TrainingConfigurationResult::PipelineConfigurationResult>& pipeline_config_result) {
+    std::optional<TrainingConfigurationResult::PipelineConfigurationResult>& pipeline_config_result) {
   if (!pipeline_config.has_value()) {
     pipeline_schedule_ = pipeline::PipelineScheduler(
         1,
@@ -1670,13 +1670,13 @@ Status PipelineTrainingSession::SetEventSynchronization(
 
 Status PipelineTrainingSession::BuildLossAndLossScaling(
     const int32_t pipeline_stage_id,
-    const optional<std::string>& external_loss_name,
-    const optional<TrainingConfiguration::MixedPrecisionConfiguration>& mixed_precision_config,
-    const optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
-    const optional<TrainingConfiguration::LossFunctionConfiguration>& loss_function_config,
+    const std::optional<std::string>& external_loss_name,
+    const std::optional<TrainingConfiguration::MixedPrecisionConfiguration>& mixed_precision_config,
+    const std::optional<TrainingConfiguration::DistributedConfiguration>& distributed_config,
+    const std::optional<TrainingConfiguration::LossFunctionConfiguration>& loss_function_config,
     std::string& loss_name,
-    optional<std::string>& loss_scale_input_name,
-    optional<TrainingConfigurationResult::MixedPrecisionConfigurationResult>& mixed_precision_config_result) {
+    std::optional<std::string>& loss_scale_input_name,
+    std::optional<TrainingConfigurationResult::MixedPrecisionConfigurationResult>& mixed_precision_config_result) {
   const bool last_pipeline_stage = pipeline_stage_id == -1 || (pipeline_stage_id + 1 == distributed_config.value().pipeline_parallel_size);
   const bool enable_loss_scale = is_mixed_precision_enabled_ &&
                                  mixed_precision_config.value().mixed_precision_type == MixedPrecisionDataType::FP16;
@@ -1686,7 +1686,7 @@ Status PipelineTrainingSession::BuildLossAndLossScaling(
   // The reason to have fake thing is to have the same input schema for non-last and last pipeline stages.
   const bool enable_fake_loss_scale = enable_loss_scale && !last_pipeline_stage;
 
-  loss_scale_input_name = enable_true_loss_scale ? optional<std::string>{""} : optional<std::string>{};
+  loss_scale_input_name = enable_true_loss_scale ? std::optional<std::string>{""} : std::optional<std::string>{};
 
   ORT_RETURN_IF_ERROR(BuildLoss(
       external_loss_name,

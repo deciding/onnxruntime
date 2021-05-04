@@ -279,7 +279,7 @@ class PlannerImpl {
       }
     }
 
-    const optional<std::pair<int, int>>& variadic_alias_offsets = ci.kernel_def->VariadicAlias();
+    const std::optional<std::pair<int, int>>& variadic_alias_offsets = ci.kernel_def->VariadicAlias();
     if (variadic_alias_offsets.has_value()) {
       int input_offset = variadic_alias_offsets.value().first;
       int output_offset = variadic_alias_offsets.value().second;

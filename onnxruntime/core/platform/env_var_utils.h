@@ -4,7 +4,7 @@
 #pragma once
 
 #include "core/common/common.h"
-#include "core/common/optional.h"
+#include <optional>
 #include "core/common/parse_string.h"
 #include "core/platform/env.h"
 
@@ -13,7 +13,7 @@ namespace onnxruntime {
  * Parses an environment variable value if available (defined and not empty).
  */
 template <typename T>
-optional<T> ParseEnvironmentVariable(const std::string& name) {
+std::optional<T> ParseEnvironmentVariable(const std::string& name) {
   const std::string value_str = Env::Default().GetEnvironmentVar(name);
   if (value_str.empty()) {
     return {};

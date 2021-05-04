@@ -7,7 +7,7 @@
 
 #include "gtest/gtest.h"
 
-#include "core/common/optional.h"
+#include <optional>
 #include "core/providers/cuda/reduction/reduction_functions.h"
 #include "core/providers/cuda/shared_inc/cuda_utils.h"
 #include "test/common/tensor_op_test_utils.h"
@@ -264,8 +264,8 @@ TEST(ReductionFunctionsTest, GetApplicableMatrixReduction) {
       [](cudnnReduceTensorOp_t cudnn_op,
          const std::vector<int64_t>& dims, const std::vector<int64_t>& axes,
          ApplicableMatrixReduction expected_reduction,
-         const optional<int>& expected_m = nullopt,
-         const optional<int>& expected_n = nullopt) {
+         const std::optional<int>& expected_m = std::nullopt,
+         const std::optional<int>& expected_n = std::nullopt) {
         SCOPED_TRACE(MakeString(
             "cudnn_op: ", cudnn_op,
             ", dims: ", TensorShape::ReinterpretBaseType(dims),

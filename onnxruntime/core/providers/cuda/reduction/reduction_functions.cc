@@ -8,7 +8,7 @@
 #include <iterator>
 #include <utility>
 
-#include "core/common/optional.h"
+#include <optional>
 #include "core/framework/tensor_shape.h"
 #include "core/providers/common.h"
 
@@ -27,7 +27,7 @@ std::reverse_iterator<It> make_reverse_iterator(It it) {
 #endif
 
 // gets min and max of single contiguous range of axes if available
-optional<std::pair<int64_t, int64_t>> GetMinAndMaxContiguousAxes(
+std::optional<std::pair<int64_t, int64_t>> GetMinAndMaxContiguousAxes(
     int64_t rank,
     const std::vector<int64_t>& dims,
     const std::vector<int64_t>& original_axes) {
@@ -69,7 +69,7 @@ optional<std::pair<int64_t, int64_t>> GetMinAndMaxContiguousAxes(
     }
 
     // otherwise, not contiguous
-    return nullopt;
+    return std::nullopt;
   }
 
   // expand axes over surrounding dimensions with value of 1

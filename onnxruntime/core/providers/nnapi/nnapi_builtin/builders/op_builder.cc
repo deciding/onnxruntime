@@ -1,5 +1,6 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
+#include <optional>
 
 #include <core/common/logging/logging.h>
 #include <core/common/safeint.h>
@@ -550,12 +551,12 @@ static Status GetConvMatMulOpQuantizationScaleAndZeroPoint(
     const ModelBuilder& model_builder, const Node& node,
     float& a_scale, float& w_scale, float& y_scale,
     int32_t& a_zero_point, int32_t& w_zero_point, int32_t& y_zero_point,
-    optional<vector<float>>& w_scales, bool& is_per_tensor_u8s8) ORT_MUST_USE_RESULT;
+    std::optional<vector<float>>& w_scales, bool& is_per_tensor_u8s8) ORT_MUST_USE_RESULT;
 static Status GetConvMatMulOpQuantizationScaleAndZeroPoint(
     const ModelBuilder& model_builder, const Node& node,
     float& a_scale, float& w_scale, float& y_scale,
     int32_t& a_zero_point, int32_t& w_zero_point, int32_t& y_zero_point,
-    optional<vector<float>>& w_scales, bool& is_per_tensor_u8s8) {
+    std::optional<vector<float>>& w_scales, bool& is_per_tensor_u8s8) {
   is_per_tensor_u8s8 = false;
   // Get scale and zero points
   // We will handle per-channel weight scale and zero point later
@@ -633,12 +634,12 @@ static Status IsValidConvWeightQuantizedType(const ModelBuilder& model_builder,
                                              const std::string& input_name,
                                              float scale,
                                              int32_t zero_point,
-                                             const optional<vector<float>>& scales) ORT_MUST_USE_RESULT;
+                                             const std::optional<vector<float>>& scales) ORT_MUST_USE_RESULT;
 static Status IsValidConvWeightQuantizedType(const ModelBuilder& model_builder,
                                              const std::string& input_name,
                                              float scale,
                                              int32_t zero_point,
-                                             const optional<vector<float>>& scales) {
+                                             const std::optional<vector<float>>& scales) {
   // first verify as the weight has no per-channel quantization
   ORT_RETURN_IF_ERROR(IsValidInputQuantizedType(model_builder, input_name, scale, zero_point));
 
@@ -1417,7 +1418,7 @@ Status ConvOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder, const N
           y_zero_point = 0;
 
   // this is for per-channel quantization weights
-  optional<vector<float>> w_scales;
+  std::optional<vector<float>> w_scales;
   bool is_per_tensor_u8s8 = false;
   if (is_qlinear_conv) {
     ORT_RETURN_IF_ERROR(GetConvMatMulOpQuantizationScaleAndZeroPoint(model_builder, node,
@@ -1780,7 +1781,7 @@ Status GemmOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder, const N
 
   bool is_per_tensor_u8s8 = false;
   if (is_qlinear_matmul) {
-    optional<vector<float>> w_scales;
+    std::optional<vector<float>> w_scales;
     ORT_RETURN_IF_ERROR(
         GetConvMatMulOpQuantizationScaleAndZeroPoint(model_builder, node,
                                                      a_scale, b_scale, y_scale,

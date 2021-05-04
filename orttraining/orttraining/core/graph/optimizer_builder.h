@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include "core/common/optional.h"
+#include <optional>
 #include "core/framework/data_types.h"
 #include "orttraining/core/graph/generic_registry.h"
 #include "orttraining/core/graph/graph_augmenter.h"
@@ -61,18 +61,18 @@ struct OptimizerBuilderConfig {
   std::vector<ArgDef> gradient_argdefs;
 
   // (Optional) The ArgDef of gradient norm.
-  optional<ArgDef> gradient_norm_argdef;
+  std::optional<ArgDef> gradient_norm_argdef;
 
   // (Optional) The ArgDef indicates whether
   //  the passed-in gradient norm is finite.
-  optional<ArgDef> gradient_norm_finite_argdef;
+  std::optional<ArgDef> gradient_norm_finite_argdef;
 
   // The per weight optimizer configuration.
   std::vector<OptimizerNodeConfig> opt_configs;
 
   // (Optional) The flag to force gradient clipping. If planning
   // to use the default behavior of each sub-class, should not be set.
-  optional<bool> enable_grad_clipping;
+  std::optional<bool> enable_grad_clipping;
 
   // The initial state for optimizer params
   // shared by all weights.

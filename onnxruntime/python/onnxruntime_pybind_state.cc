@@ -11,7 +11,7 @@
 
 #include "core/common/logging/logging.h"
 #include "core/common/logging/severity.h"
-#include "core/common/optional.h"
+#include <optional>
 #include "core/framework/arena_extend_strategy.h"
 #include "core/framework/data_transfer_utils.h"
 #include "core/framework/data_types_internal.h"
@@ -894,7 +894,7 @@ static bool CheckIfTensor(const std::vector<const NodeArg*>& def_list,
     defined(USE_CUDA) ||     \
     defined(USE_ROCM)
 static void LogDeprecationWarning(
-    const std::string& deprecated, const optional<std::string>& alternative = nullopt) {
+    const std::string& deprecated, const std::optional<std::string>& alternative = std::nullopt) {
   LOGS_DEFAULT(WARNING) << "This is DEPRECATED and will be removed in the future: " << deprecated;
   LOGS_DEFAULT_IF(alternative.has_value(), WARNING) << "As an alternative, use: " << *alternative;
 }

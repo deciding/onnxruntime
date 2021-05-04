@@ -2,16 +2,17 @@
 // Licensed under the MIT License.
 
 #include <unordered_map>
+#include <optional>
 
 #include "core/common/common.h"
-#include "core/common/optional.h"
 
-namespace onnxruntime {
+
+    namespace onnxruntime {
 namespace test {
 
 // map of environment variable name to optional value
 // no value means the variable is not defined
-using EnvVarMap = std::unordered_map<std::string, optional<std::string>>;
+using EnvVarMap = std::unordered_map<std::string, std::optional<std::string>>;
 
 // Sets the given environment variables to their given values while in scope.
 // The original values are reset on destruction.

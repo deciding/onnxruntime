@@ -5,7 +5,7 @@
 
 #include "gtest/gtest.h"
 
-#include "core/common/optional.h"
+#include <optional>
 #include "test/util/include/asserts.h"
 
 namespace onnxruntime {
@@ -226,7 +226,7 @@ TEST(PathTest, RelativePathFailure) {
 #if !defined(ORT_NO_EXCEPTIONS)
 TEST(PathTest, Concat) {
   auto check_concat =
-      [](const optional<std::string>& a, const std::string& b, const std::string& expected_a, bool expect_throw = false) {
+      [](const std::optional<std::string>& a, const std::string& b, const std::string& expected_a, bool expect_throw = false) {
         Path p_a{}, p_expected_a{};
         if (a.has_value()) {
           ASSERT_STATUS_OK(Path::Parse(ToPathString(a.value()), p_a));

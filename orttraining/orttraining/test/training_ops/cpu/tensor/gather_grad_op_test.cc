@@ -3,7 +3,7 @@
 
 #include "gtest/gtest.h"
 
-#include "core/common/optional.h"
+#include <optional>
 #include "core/util/math.h"
 #include "test/common/cuda_op_test_utils.h"
 #include "test/common/tensor_op_test_utils.h"
@@ -47,7 +47,7 @@ void ConfigureGatherGradRandomDataOpTester(
     int64_t axis,
     const TensorShape& X_shape,
     const TensorShape& indices_shape,
-    optional<RandomValueGenerator::RandomSeedType> random_seed,
+    std::optional<RandomValueGenerator::RandomSeedType> random_seed,
     OpTester& test) {
   ASSERT_LE(0, axis);
   ASSERT_LT(static_cast<size_t>(axis), X_shape.NumDimensions());
@@ -87,7 +87,7 @@ void RunGatherGradTestWithRandomData(
     int64_t axis,
     const TensorShape& X_shape,
     const TensorShape& indices_shape,
-    optional<float> absolute_error = {}) {
+    std::optional<float> absolute_error = {}) {
   OpTester test("GatherGrad", 1, kMSDomain);
   ConfigureGatherGradRandomDataOpTester<T>(axis, X_shape, indices_shape, test);
   if (absolute_error.has_value()) {
@@ -167,7 +167,7 @@ TEST(GatherGradOpTest, Gather_axis0_float_impl2) {
 
 TEST(GatherGradOpTest, GatherFewDistinctIndices) {
   // account for error from adding longer sequences of floats in different orders
-  optional<float> absolute_error{5e-3f};
+  std::optional<float> absolute_error{5e-3f};
   RunGatherGradTestWithRandomData<float>(0, {2, 32}, {6, 128}, absolute_error);
 }
 

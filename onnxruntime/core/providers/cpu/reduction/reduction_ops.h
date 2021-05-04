@@ -5,7 +5,7 @@
 #define CORE_PROVIDERS_CPU_REDUCTION_OPS_H
 
 #include "core/common/common.h"
-#include "core/common/optional.h"
+#include <optional>
 #include "core/framework/op_kernel.h"
 #include "core/providers/cpu/containers.h"
 #include "core/util/math_cpuonly.h"
@@ -355,7 +355,7 @@ void CommonReduce(OpKernelContext* ctx,
 template <bool allow_multi_axes>
 class ReduceKernelBase {
  protected:
-  ReduceKernelBase(const OpKernelInfo& info, optional<int64_t> keepdims_override = {}) {
+  ReduceKernelBase(const OpKernelInfo& info, std::optional<int64_t> keepdims_override = {}) {
     if (allow_multi_axes) {
       axes_ = info.GetAttrsOrDefault<int64_t>("axes");
     } else {

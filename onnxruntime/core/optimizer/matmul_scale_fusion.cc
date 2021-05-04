@@ -5,7 +5,7 @@
 
 #include "onnx/defs/attr_proto_util.h"
 
-#include "core/common/optional.h"
+#include <optional>
 #include "core/framework/data_types_internal.h"
 #include "core/framework/tensorprotoutils.h"
 #include "core/graph/graph_utils.h"
@@ -25,7 +25,7 @@ struct ExtractScalarAsFloatDispatchTarget {
   }
 };
 
-optional<float> GetScalarConstantInitializer(const Graph& graph, const NodeArg& node_arg) {
+std::optional<float> GetScalarConstantInitializer(const Graph& graph, const NodeArg& node_arg) {
   const auto* initializer = graph_utils::GetConstantInitializer(graph, node_arg.Name());
 
   if (!initializer) {
@@ -54,7 +54,7 @@ optional<float> GetScalarConstantInitializer(const Graph& graph, const NodeArg& 
 }
 
 // gets the scale value and its input index if node is a fusable scale (Mul or Div by scalar constant)
-optional<std::pair<float, int>> GetScaleFromNode(
+std::optional<std::pair<float, int>> GetScaleFromNode(
     const Graph& graph, const Node& scale_node,
     const std::unordered_set<std::string>& excluded_initializer_names) {
   const auto is_excluded_initializer =

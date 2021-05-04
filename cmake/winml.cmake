@@ -366,7 +366,7 @@ onnxruntime_add_static_library(winml_lib_image
 
 # Compiler options
 target_compile_features(winml_lib_image PRIVATE cxx_std_17)
-target_compile_options(winml_lib_image PRIVATE /GR- /await /wd4238 /wd5205)
+target_compile_options(winml_lib_image PRIVATE /GR- /await /wd4238 /wd5205 /wd4499)
 
 # Compiler flags
 target_compile_definitions(winml_lib_image PRIVATE WINML_ROOT_NS=${winml_root_ns})
@@ -471,7 +471,8 @@ onnxruntime_add_static_library(winml_lib_api
 # Compiler options
 target_compile_features(winml_lib_api PRIVATE cxx_std_17)
 target_compile_options(winml_lib_api PRIVATE /GR- /await /bigobj /wd4238 /wd5205)
-
+set_target_properties(winml_lib_api PROPERTIES CXX_STANDARD 17)
+set_target_properties(winml_lib_api PROPERTIES CXX_STANDARD_REQUIRED ON)
 # Compiler flags
 target_compile_definitions(winml_lib_api PRIVATE WINML_ROOT_NS=${winml_root_ns})
 target_compile_definitions(winml_lib_api PRIVATE ONNX_NAMESPACE=onnx)
@@ -703,6 +704,8 @@ onnxruntime_add_shared_library(winml_dll
 # Compiler options
 target_compile_features(winml_dll PRIVATE cxx_std_17)
 target_compile_options(winml_dll PRIVATE /GR- /await /bigobj /wd4238)
+set_target_properties(winml_dll PROPERTIES CXX_STANDARD 17)
+set_target_properties(winml_dll PROPERTIES CXX_STANDARD_REQUIRED ON)
 
 # Compiler definitions
 target_compile_definitions(winml_dll PRIVATE WINML_ROOT_NS=${winml_root_ns})

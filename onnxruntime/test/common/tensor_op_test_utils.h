@@ -9,7 +9,7 @@
 #include "gtest/gtest.h"
 
 #include "core/common/common.h"
-#include "core/common/optional.h"
+#include <optional>
 #include "core/common/type_utils.h"
 #include "core/util/math.h"
 
@@ -30,7 +30,7 @@ class RandomValueGenerator {
   using RandomEngine = std::default_random_engine;
   using RandomSeedType = RandomEngine::result_type;
 
-  explicit RandomValueGenerator(optional<RandomSeedType> seed = {});
+  explicit RandomValueGenerator(std::optional<RandomSeedType> seed = {});
 
   RandomSeedType GetRandomSeed() const {
     return random_seed_;

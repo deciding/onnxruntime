@@ -28,7 +28,7 @@ static Status SplitDims(
 
 static void TestLayerNorm(const std::vector<int64_t>& x_dims,
                           const std::string& op,
-                          optional<float> epsilon,
+                          std::optional<float> epsilon,
                           int64_t axis = -1,
                           int64_t keep_dims = 1,
                           bool no_bias = false) {

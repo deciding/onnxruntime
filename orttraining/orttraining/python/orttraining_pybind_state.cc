@@ -81,7 +81,7 @@ struct TrainingParameters {
 };
 
 struct TrainingConfigurationResult {
-  optional<std::string> loss_scale_input_name;
+  std::optional<std::string> loss_scale_input_name;
 };
 
 // TODO: this method does not handle parallel optimization.

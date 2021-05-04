@@ -46,7 +46,7 @@ void RunQLinearGlobalAveragePoolU8(
   std::vector<uint8_t> x_data((size_t)x_size);
   std::vector<uint8_t> y_data((size_t)y_size);
 
-  RandomValueGenerator random{seed ? optional<RandomValueGenerator::RandomSeedType>{seed} : optional<RandomValueGenerator::RandomSeedType>{}};
+  RandomValueGenerator random{seed ? std::optional<RandomValueGenerator::RandomSeedType>{seed} : std::optional<RandomValueGenerator::RandomSeedType>{}};
   std::vector<int> tmp_x_data = random.Uniform<int32_t>(x_dims, 0, 255);
   std::transform(tmp_x_data.begin(), tmp_x_data.end(), x_data.data(), [](int32_t v) -> uint8_t {
     return static_cast<uint8_t>(v);

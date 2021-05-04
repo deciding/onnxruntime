@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 #pragma once
-#include "core/common/optional.h"
+#include <optional>
 #include "core/providers/cuda/cuda_kernel.h"
 #include "core/providers/cpu/reduction/reduction_ops.h"
 #include "core/providers/cuda/reduction/reduction_functions.h"
@@ -40,7 +40,7 @@ class ReduceKernel : public CudaKernel, public ReduceKernelBase<allow_multi_axes
  protected:
   ReduceKernel(
       const OpKernelInfo& info,
-      optional<int64_t> keep_dims_override = {})
+      std::optional<int64_t> keep_dims_override = {})
       : CudaKernel(info),
         ReduceKernelBase<allow_multi_axes>(info, keep_dims_override),
         calculate_log_(false),

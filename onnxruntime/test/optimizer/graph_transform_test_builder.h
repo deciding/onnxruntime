@@ -241,7 +241,7 @@ class ModelTestBuilder {
   Graph& graph_;
   NameMLValMap feeds_;
   std::vector<std::string> output_names_;
-  RandomValueGenerator rand_gen_{optional<RandomValueGenerator::RandomSeedType>{2345}};
+  RandomValueGenerator rand_gen_{std::optional<RandomValueGenerator::RandomSeedType>{2345}};
 };
 
 void TransformerTester(const std::function<void(ModelTestBuilder& helper)>& build_test_case,

@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 #pragma once
-#include "core/common/optional.h"
+#include <optional>
 #include "core/providers/cuda/cuda_common.h"
 #include "core/providers/cuda/reduction/reduction_ops.h"
 #include "core/providers/cuda/reduction/reduction_functions.h"

@@ -5,7 +5,7 @@
 
 #include "core/providers/cpu/reduction/reduction_ops.h"
 #include "core/common/common.h"
-#include "core/common/optional.h"
+#include <optional>
 #include "core/framework/op_kernel.h"
 
 namespace onnxruntime {

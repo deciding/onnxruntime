@@ -22,7 +22,7 @@
 #include "NeuralNetworksTypes.h"
 
 // Move to std::optional when we switch to c++ 17
-#include "core/common/optional.h"
+#include <optional>
 
 namespace android {
 namespace nn {
