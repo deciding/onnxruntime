@@ -70,6 +70,8 @@ class BFCArena : public IArenaAllocator {
   //passed to free(). Whatever, do not dereference that pointer
   void* Alloc(size_t size) override;
 
+  void* AllocDump(size_t size);
+
   //If p is NULL, no operation is performed.
   void Free(void* p) override;
 

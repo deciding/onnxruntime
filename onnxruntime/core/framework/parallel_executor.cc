@@ -183,6 +183,7 @@ Status ParallelExecutor::RunNodeAsync(size_t p_node_index,
                                                      sync_time_begin,
                                                      {{"op_name", p_op_kernel->KernelDef().OpName()}});
       concurrency::ThreadPool::StartProfiling(session_state.GetThreadPool());
+      concurrency::ThreadPool::StartProfiling(session_state.GetInterOpThreadPool());
       kernel_begin_time = session_state.Profiler().Now();
     }
 
@@ -217,12 +218,20 @@ Status ParallelExecutor::RunNodeAsync(size_t p_node_index,
 
     if (f_profiler_enabled) {
       kernel_end_time = session_state.Profiler().Now();
+      std::ostringstream souts;
+      for (auto it = node.OutputNodesBegin(); it != node.OutputNodesEnd(); ++it) {
+        souts << (*it).Index() << ",";
+      }
+      const auto out_string = souts.str();
       session_state.Profiler().EndTimeAndRecordEvent(profiling::NODE_EVENT,
-                                                     node.Name() + "_kernel_time",
+                                                     node.Name().empty() ? MakeString(node.OpType(), "_", node.Index()) : MakeString(node.Name(), "_", node.Index()), // node.Name() + "_kernel_time",
                                                      kernel_begin_time, kernel_end_time,
                                                      {{"op_name", p_op_kernel->KernelDef().OpName()},
                                                       {"provider", p_op_kernel->KernelDef().Provider()},
-                                                      {"thread_scheduling_stats", concurrency::ThreadPool::StopProfiling(session_state.GetThreadPool())}});
+                                                      {"outs", out_string},
+                                                      {"thread_scheduling_stats", concurrency::ThreadPool::StopProfiling(session_state.GetThreadPool())},
+                                                      {"interop_thread_scheduling_stats", concurrency::ThreadPool::StopProfiling(session_state.GetInterOpThreadPool())}
+                                                      });
 
       sync_time_begin = session_state.Profiler().Now();
     }

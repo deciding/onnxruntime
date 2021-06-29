@@ -277,7 +277,8 @@ Status SequentialExecutor::Execute(const SessionState& session_state, const std:
     const std::string node_name_for_profiling = [&]() -> std::string {
       if (!is_profiler_enabled) return {};
       // Derive something meaningful for profile traces and logs if node name field is blank in execution graph
-      return node.Name().empty() ? MakeString(node.OpType(), "_", node_index) : node.Name();
+      // return node.Name().empty() ? MakeString(node.OpType(), "_", node_index) : node.Name();
+      return node.Name().empty() ? MakeString(node.OpType(), "_", node_index) : MakeString(node.Name(), "_", node_index) ;
     }();
 
     if (is_profiler_enabled) {
@@ -356,13 +357,20 @@ Status SequentialExecutor::Execute(const SessionState& session_state, const std:
                 << " Output_Size=" << total_output_sizes
                 << "\n";
 #endif
+      std::ostringstream souts;
+      for (auto it = node.OutputNodesBegin(); it != node.OutputNodesEnd(); ++it) {
+        souts << (*it).Index() << ",";
+      }
+      const auto out_string = souts.str();
       session_state.Profiler().EndTimeAndRecordEvent(profiling::NODE_EVENT,
-                                                     node_name_for_profiling + "_kernel_time",
+                                                     // node_name_for_profiling + "_kernel_time",
+                                                     node_name_for_profiling,
                                                      kernel_begin_time, kernel_end_time,
                                                      // Log additional operation args / info.
                                                      {
                                                          {"op_name", p_op_kernel->KernelDef().OpName()},
                                                          {"provider", p_op_kernel->KernelDef().Provider()},
+                                                         {"outs", out_string},
                                                          {"graph_index", std::to_string(p_op_kernel->Node().Index())},
                                                          {"exec_plan_index", std::to_string(node_index)},
                                                          {"activation_size", std::to_string(input_activation_sizes)},

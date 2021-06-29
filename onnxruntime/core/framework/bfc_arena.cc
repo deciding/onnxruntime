@@ -225,6 +225,12 @@ void* BFCArena::Alloc(size_t size) {
   return AllocateRawInternal(size, false);
 }
 
+void* BFCArena::AllocDump(size_t size) {
+  size_t rounded_bytes = RoundedBytes(size);
+  DumpMemoryLog(rounded_bytes);
+  return AllocateRawInternal(size, false);
+}
+
 void* BFCArena::Reserve(size_t size) {
   if (size == 0)
     return nullptr;
