@@ -457,6 +457,10 @@ Status ExecutionFrame::CopyTensor(const Tensor& src, Tensor& dest) const {
   return session_state_.GetDataTransferMgr().CopyTensor(src, dest);
 }
 
+profiling::Profiler* ExecutionFrame::Profiler() const {
+  return &session_state_.Profiler();
+}
+
 Status ExecutionFrame::AllocateMLValueTensorSelfOwnBuffer(OrtValue& ort_value, int ort_value_index,
                                                           MLDataType element_type, const OrtMemoryInfo& location,
                                                           const TensorShape& shape, bool create_fence) {

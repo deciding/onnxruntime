@@ -167,6 +167,10 @@ const std::string& OpKernelContext::GetOpType() const {
   return kernel_->Node().OpType();
 }
 
+profiling::Profiler& OpKernelContext::Profiler() const { 
+  return *(execution_frame_->Profiler()); 
+}
+
 const OrtValue* OpKernelContext::GetInputMLValue(int index) const {
   if (index < 0 || index >= InputCount())
     return nullptr;

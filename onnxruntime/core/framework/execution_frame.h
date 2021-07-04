@@ -9,6 +9,7 @@
 
 #include "core/common/common.h"
 #include "core/common/logging/logging.h"
+#include "core/common/profiler.h"
 #include "core/common/status.h"
 #include "core/framework/iexecutor.h"
 #include "core/framework/ml_value.h"
@@ -67,6 +68,8 @@ class IExecutionFrame {
   // This function try retrieve the inferred shapes for the given NodeArg index.
   // If the retrival is sucessful, this function returns true and false otherwise.
   virtual bool TryGetInferredShape(int index, TensorShape& shape) const;
+
+  virtual profiling::Profiler* Profiler() const { return new profiling::Profiler(); };
 
   /**
    * write the output values to the 'fetches' vector
@@ -134,6 +137,8 @@ class ExecutionFrame final : public IExecutionFrame {
                  const SessionState& session_state);
 
   ~ExecutionFrame() override;
+
+  profiling::Profiler* Profiler() const override; 
 
   // TODO: These two AllocateMLValue... methods are in the API purely for unit test usage.
   // Fix the unit tests so they set an execution plan that results in these methods being called by

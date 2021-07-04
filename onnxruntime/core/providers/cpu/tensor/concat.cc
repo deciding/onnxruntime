@@ -211,6 +211,14 @@ Status ConcatBase::ComputeImpl(Prepare& p) const {
 
 // core Compute() method for the 'Concat' kernel
 Status Concat::Compute(OpKernelContext* ctx) const {
+  // Profile
+  bool profiler_enabled = ctx->Profiler().IsEnabled();
+  TimePoint start_tp;
+  TimePoint compute_start_tp;
+  if (profiler_enabled) {
+      start_tp = ctx->Profiler().Now();
+  }
+
   // Number of input tensors to concatenate
   auto input_count = Node().InputArgCount().front();
 
@@ -227,12 +235,24 @@ Status Concat::Compute(OpKernelContext* ctx) const {
   if (!status.IsOK())
     return status;
 
+  if (profiler_enabled) {
+      ctx->Profiler().EndTimeAndRecordEvent(profiling::KERNEL_EVENT, "Concat_Prepare", start_tp);
+      compute_start_tp = ctx->Profiler().Now();
+  }
+
   // Return at this point if output tensor is going to be empty
   if (p.output_num_elements == 0)
     return Status::OK();
 
   // Compute values to be placed in the output tensor
-  return ComputeImpl(p);
+  // return ComputeImpl(p);
+  status = ComputeImpl(p);
+
+  if (profiler_enabled) {
+      ctx->Profiler().EndTimeAndRecordEvent(profiling::KERNEL_EVENT, "Concat_Compute_memcpy", compute_start_tp);
+  }
+
+  return status;
 }
 
 }  // namespace onnxruntime

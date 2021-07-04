@@ -1,6 +1,8 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+#include "core/common/profiler.h"
+
 namespace onnxruntime {
 class IExecutionFrame;
 namespace concurrency {
@@ -161,6 +163,8 @@ class OpKernelContext {
   Returns the intra-op threadpool, if available.
   */
   _Ret_maybenull_ onnxruntime::concurrency::ThreadPool* GetOperatorThreadPool() const { return threadpool_; }
+
+  profiling::Profiler& Profiler() const; 
 
   /**
   Returns whether deterministic computation is preferred.
