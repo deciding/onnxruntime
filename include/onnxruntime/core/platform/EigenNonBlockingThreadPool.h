@@ -238,6 +238,7 @@ class ThreadPoolProfiler {
   void LogEndAndStart(ThreadPoolEvent);
   void LogStartAndCoreAndBlock(std::ptrdiff_t block_size);
   void LogCoreAndBlock(std::ptrdiff_t block_size);  //called in main thread to log core and block size for task breakdown
+  void LogWorkInfo(std::ptrdiff_t total_work, int num_worker);
   void LogThreadId(int thread_idx);                 //called in child thread to log its id
   void LogRun(int thread_idx);                      //called in child thread to log num of run
   std::string DumpChildThreadStat();                //return all child statitics collected so far
@@ -248,9 +249,12 @@ class ThreadPoolProfiler {
     uint64_t events_[MAX_EVENT] = {};
     int32_t core_ = -1;
     std::vector<std::ptrdiff_t> blocks_;  //block size determined by cost model
+    std::vector<std::ptrdiff_t> total_work_;  // total work to do
+    std::vector<int> num_worker_;  // min(dop, total_work_/blocks_)
     std::vector<onnxruntime::TimePoint> points_;
     void LogCore();
     void LogBlockSize(std::ptrdiff_t block_size);
+    void LogWorkInfo(std::ptrdiff_t total_work, int num_worker);
     void LogStart();
     void LogEnd(ThreadPoolEvent);
     void LogEndAndStart(ThreadPoolEvent);
@@ -262,6 +266,7 @@ class ThreadPoolProfiler {
   struct ChildThreadStat {
     std::thread::id thread_id_;
     uint64_t num_run_ = 0;
+    uint64_t cur_run_ = 0;
     onnxruntime::TimePoint last_logged_point_ = Clock::now();
     int32_t core_ = -1;  //core that the child thread is running on
     PaddingToAvoidFalseSharing padding_; //to prevent false sharing
@@ -296,7 +301,7 @@ class ExtendedThreadPoolInterface : public Eigen::ThreadPoolInterface {
   // [0,k) where k<=n.
   virtual void RunInParallelSection(ThreadPoolParallelSection &ps,
                                     std::function<void(unsigned idx)> fn,
-                                    unsigned n, std::ptrdiff_t block_size) = 0;
+                                    unsigned n, std::ptrdiff_t block_size, std::ptrdiff_t total) = 0;
 
   // Special case alternative to RunInParallelSection for use without
   // an existing parallel section.  Ideally we would use a single
@@ -313,7 +318,7 @@ class ExtendedThreadPoolInterface : public Eigen::ThreadPoolInterface {
   // [ Note that this 20% overhead is more than paid for when we have
   // two loops execute in series in a parallel section. ]
   virtual void RunInParallel(std::function<void(unsigned idx)> fn,
-                             unsigned n, std::ptrdiff_t block_size) = 0;
+                             unsigned n, std::ptrdiff_t block_size, std::ptrdiff_t total) = 0;
   virtual void StartProfiling()  = 0;
   virtual std::string StopProfiling() = 0;
 };
@@ -1191,8 +1196,9 @@ void RunInParallelInternal(PerThread& pt,
 void RunInParallelSection(ThreadPoolParallelSection &ps,
                           std::function<void(unsigned idx)> fn,
                           unsigned n,
-                          std::ptrdiff_t block_size) override {
+                          std::ptrdiff_t block_size, std::ptrdiff_t total) override {
   profiler_.LogStartAndCoreAndBlock(block_size);
+  profiler_.LogWorkInfo(total, n);
   PerThread* pt = GetPerThread();
   assert(pt->leading_par_section && "RunInParallel, but not in parallel section");
   assert((n > 1) && "Trivial parallel section; should be avoided by caller");
@@ -1248,8 +1254,9 @@ void RunInParallelSection(ThreadPoolParallelSection &ps,
 //  2. run fn(...) itself.
 // For all other threads:
 //  1. run fn(...);
-void RunInParallel(std::function<void(unsigned idx)> fn, unsigned n, std::ptrdiff_t block_size) override {
+void RunInParallel(std::function<void(unsigned idx)> fn, unsigned n, std::ptrdiff_t block_size, std::ptrdiff_t total) override {
   profiler_.LogStartAndCoreAndBlock(block_size);
+  profiler_.LogWorkInfo(total, n);
   PerThread* pt = GetPerThread();
   ThreadPoolParallelSection ps;
   StartParallelSectionInternal(*pt, ps);

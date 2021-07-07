@@ -103,6 +103,13 @@ void ThreadPoolProfiler::LogCoreAndBlock(std::ptrdiff_t block_size) {
   }
 }
 
+void ThreadPoolProfiler::LogWorkInfo(std::ptrdiff_t total_work, int num_worker) {
+  if (enabled_) {
+    MainThreadStat& stat = GetMainThreadStat();
+    stat.LogWorkInfo(total_work, num_worker);
+  }
+}
+
 void ThreadPoolProfiler::LogStart() {
   if (enabled_) {
     GetMainThreadStat().LogStart();
@@ -143,6 +150,11 @@ void ThreadPoolProfiler::MainThreadStat::LogBlockSize(std::ptrdiff_t block_size)
   blocks_.emplace_back(block_size);
 }
 
+void ThreadPoolProfiler::MainThreadStat::LogWorkInfo(std::ptrdiff_t total_work, int num_worker) {
+  total_work_.emplace_back(total_work);
+  num_worker_.emplace_back(num_worker);
+}
+
 void ThreadPoolProfiler::MainThreadStat::LogStart() {
   points_.emplace_back(Clock::now());
 }
@@ -167,6 +179,18 @@ std::string ThreadPoolProfiler::MainThreadStat::Reset() {
     std::copy(blocks_.begin(), blocks_.end() - 1, std::ostream_iterator<std::ptrdiff_t>(ss, ", "));
     ss << blocks_.back();
     blocks_.clear();
+  }
+  ss << "], \"total_work\": [";
+  if (!total_work_.empty()) {
+    std::copy(total_work_.begin(), total_work_.end() - 1, std::ostream_iterator<std::ptrdiff_t>(ss, ", "));
+    ss << total_work_.back();
+    total_work_.clear();
+  }
+  ss << "], \"num_worker\": [";
+  if (!num_worker_.empty()) {
+    std::copy(num_worker_.begin(), num_worker_.end() - 1, std::ostream_iterator<int>(ss, ", "));
+    ss << num_worker_.back();
+    num_worker_.clear();
   }
   ss << "], \"core\": " << core_ << ", ";
   for (int i = 0; i < MAX_EVENT; ++i) {
@@ -201,6 +225,7 @@ void ThreadPoolProfiler::LogThreadId(int thread_idx) {
 void ThreadPoolProfiler::LogRun(int thread_idx) {
   if (enabled_) {
     child_thread_stats_[thread_idx].num_run_++;
+    child_thread_stats_[thread_idx].cur_run_ = 1;
     auto now = Clock::now();
     if (child_thread_stats_[thread_idx].core_ < 0 ||
         TimeDiffMicroSeconds(child_thread_stats_[thread_idx].last_logged_point_, now) > 10000) {
@@ -229,6 +254,7 @@ std::string ThreadPoolProfiler::DumpChildThreadStat() {
   for (int i = 0; i < num_threads_; ++i) {
     ss << "\"" << child_thread_stats_[i].thread_id_ << "\": {"
        << "\"num_run\": " << child_thread_stats_[i].num_run_ << ", "
+       << "\"cur_run\": " << child_thread_stats_[i].cur_run_ << ", "
        << "\"core\": " << child_thread_stats_[i].core_ << "}"
        << (i == num_threads_ - 1 ? "" : ",");
   }
@@ -425,7 +451,7 @@ void ThreadPool::ParallelForFixedBlockSizeScheduling(const std::ptrdiff_t total,
   // Run the work in the thread pool (and in the current thread).  Synchronization with helping
   // threads is handled within RunInParallel, hence we can deallocate lc and other state captured by
   // run_work.
-  RunInParallel(run_work, num_work_items, block_size);
+  RunInParallel(run_work, num_work_items, block_size, total);
 }
 
 void ThreadPool::SimpleParallelFor(std::ptrdiff_t total, const std::function<void(std::ptrdiff_t)>& fn) {
@@ -488,15 +514,15 @@ ThreadPool::ParallelSection::~ParallelSection() {
 #endif
 }
 
-void ThreadPool::RunInParallel(std::function<void(unsigned idx)> fn, unsigned n, std::ptrdiff_t block_size) {
+void ThreadPool::RunInParallel(std::function<void(unsigned idx)> fn, unsigned n, std::ptrdiff_t block_size, std::ptrdiff_t total) {
   if (underlying_threadpool_) {
     if (ThreadPool::ParallelSection::current_parallel_section) {
       underlying_threadpool_->RunInParallelSection(*(ThreadPool::ParallelSection::current_parallel_section->ps_.get()),
                                                    std::move(fn),
-                                                   n, block_size);
+                                                   n, block_size, total);
     } else {
       underlying_threadpool_->RunInParallel(std::move(fn),
-                                            n, block_size);
+                                            n, block_size, total);
     }
   } else {
     fn(0);
