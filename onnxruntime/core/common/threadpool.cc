@@ -110,6 +110,19 @@ void ThreadPoolProfiler::LogWorkInfo(std::ptrdiff_t total_work, int num_worker) 
   }
 }
 
+void ThreadPoolProfiler::LogPrefWorkers(std::vector<int> &pref_worker) {
+  if (enabled_) {
+    MainThreadStat& stat = GetMainThreadStat();
+    stat.LogPrefWorkers(pref_worker);
+  }
+}
+
+void ThreadPoolProfiler::LogRevoked(int revoked) {
+  if (enabled_){
+    GetMainThreadStat().LogRevoked(revoked);
+  }
+}
+
 void ThreadPoolProfiler::LogStart() {
   if (enabled_) {
     GetMainThreadStat().LogStart();
@@ -155,6 +168,15 @@ void ThreadPoolProfiler::MainThreadStat::LogWorkInfo(std::ptrdiff_t total_work, 
   num_worker_.emplace_back(num_worker);
 }
 
+void ThreadPoolProfiler::MainThreadStat::LogPrefWorkers(std::vector<int> &pref_worker) {
+  std::vector<int> cp(pref_worker);
+  pref_workers_.emplace_back(cp);
+}
+
+void ThreadPoolProfiler::MainThreadStat::LogRevoked(int revoked) {
+  revoked_.emplace_back(revoked);
+}
+
 void ThreadPoolProfiler::MainThreadStat::LogStart() {
   points_.emplace_back(Clock::now());
 }
@@ -192,7 +214,28 @@ std::string ThreadPoolProfiler::MainThreadStat::Reset() {
     ss << num_worker_.back();
     num_worker_.clear();
   }
-  ss << "], \"core\": " << core_ << ", ";
+  ss << "], \"pref_workers\": [\n";
+  if (!pref_workers_.empty()) {
+    for(auto it = pref_workers_.begin(); it != pref_workers_.end(); it++){
+      ss << "[";
+      if(!it->empty()){
+        std::copy(it->begin(), it->end() - 1, std::ostream_iterator<int>(ss, ", "));
+        ss << it->back();
+      }
+      if(it == pref_workers_.end()-1)
+        ss << "]\n";
+      else
+        ss << "],\n";
+    }
+    num_worker_.clear();
+  }
+  ss << "], \"revoked\": [";
+  if (!revoked_.empty()) {
+    std::copy(revoked_.begin(), revoked_.end() - 1, std::ostream_iterator<int>(ss, ", "));
+    ss << revoked_.back();
+    revoked_.clear();
+  }
+  ss << "]\n, \"core\": " << core_ << ", ";
   for (int i = 0; i < MAX_EVENT; ++i) {
     ss << "\"" << ThreadPoolProfiler::GetEventName(static_cast<ThreadPoolEvent>(i))
        << "\": " << events_[i] << ((i == MAX_EVENT - 1) ? std::string{} : ", ");
@@ -222,10 +265,13 @@ void ThreadPoolProfiler::LogThreadId(int thread_idx) {
   child_thread_stats_[thread_idx].thread_id_ = std::this_thread::get_id();
 }
 
-void ThreadPoolProfiler::LogRun(int thread_idx) {
+void ThreadPoolProfiler::LogRun(int thread_idx, TimePoint start) {
   if (enabled_) {
     child_thread_stats_[thread_idx].num_run_++;
     child_thread_stats_[thread_idx].cur_run_ = 1;
+    // currently we don't accumulate, if wanna += might use following line to reset
+    // memset(events_, 0, sizeof(uint64_t) * MAX_EVENT);
+    child_thread_stats_[thread_idx].cur_time_run_ = TimeDiffMicroSeconds(start, Clock::now());
     auto now = Clock::now();
     if (child_thread_stats_[thread_idx].core_ < 0 ||
         TimeDiffMicroSeconds(child_thread_stats_[thread_idx].last_logged_point_, now) > 10000) {
@@ -255,6 +301,7 @@ std::string ThreadPoolProfiler::DumpChildThreadStat() {
     ss << "\"" << child_thread_stats_[i].thread_id_ << "\": {"
        << "\"num_run\": " << child_thread_stats_[i].num_run_ << ", "
        << "\"cur_run\": " << child_thread_stats_[i].cur_run_ << ", "
+       << "\"last run time\": " << child_thread_stats_[i].cur_time_run_ << ", "
        << "\"core\": " << child_thread_stats_[i].core_ << "}"
        << (i == num_threads_ - 1 ? "" : ",");
   }

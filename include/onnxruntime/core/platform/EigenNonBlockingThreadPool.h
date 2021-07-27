@@ -239,8 +239,10 @@ class ThreadPoolProfiler {
   void LogStartAndCoreAndBlock(std::ptrdiff_t block_size);
   void LogCoreAndBlock(std::ptrdiff_t block_size);  //called in main thread to log core and block size for task breakdown
   void LogWorkInfo(std::ptrdiff_t total_work, int num_worker);
+  void LogPrefWorkers(std::vector<int> &pref_worker);
+  void LogRevoked(int revoked);
   void LogThreadId(int thread_idx);                 //called in child thread to log its id
-  void LogRun(int thread_idx);                      //called in child thread to log num of run
+  void LogRun(int thread_idx, TimePoint start={});                      //called in child thread to log num of run
   std::string DumpChildThreadStat();                //return all child statitics collected so far
 
  private:
@@ -250,11 +252,15 @@ class ThreadPoolProfiler {
     int32_t core_ = -1;
     std::vector<std::ptrdiff_t> blocks_;  //block size determined by cost model
     std::vector<std::ptrdiff_t> total_work_;  // total work to do
+    std::vector<std::vector<int>> pref_workers_; // need to init to adequate num
+    std::vector<int> revoked_;  // revoked tasks in ps
     std::vector<int> num_worker_;  // min(dop, total_work_/blocks_)
     std::vector<onnxruntime::TimePoint> points_;
     void LogCore();
     void LogBlockSize(std::ptrdiff_t block_size);
     void LogWorkInfo(std::ptrdiff_t total_work, int num_worker);
+    void LogPrefWorkers(std::vector<int> &pref_worker);
+    void LogRevoked(int revoked);
     void LogStart();
     void LogEnd(ThreadPoolEvent);
     void LogEndAndStart(ThreadPoolEvent);
@@ -267,6 +273,7 @@ class ThreadPoolProfiler {
     std::thread::id thread_id_;
     uint64_t num_run_ = 0;
     uint64_t cur_run_ = 0;
+    uint64_t cur_time_run_ = 0;
     onnxruntime::TimePoint last_logged_point_ = Clock::now();
     int32_t core_ = -1;  //core that the child thread is running on
     PaddingToAvoidFalseSharing padding_; //to prevent false sharing
@@ -1200,6 +1207,7 @@ void RunInParallelSection(ThreadPoolParallelSection &ps,
   profiler_.LogStartAndCoreAndBlock(block_size);
   profiler_.LogWorkInfo(total, n);
   PerThread* pt = GetPerThread();
+  // profiler_.LogPrefWorkers(pt->preferred_workers);
   assert(pt->leading_par_section && "RunInParallel, but not in parallel section");
   assert((n > 1) && "Trivial parallel section; should be avoided by caller");
 
@@ -1239,6 +1247,7 @@ void RunInParallelSection(ThreadPoolParallelSection &ps,
   while (ps.workers_in_loop) {
     onnxruntime::concurrency::SpinPause();
   }
+  profiler_.LogRevoked(ps.tasks_revoked);
   profiler_.LogEnd(ThreadPoolProfiler::WAIT);
 }
 
@@ -1258,6 +1267,7 @@ void RunInParallel(std::function<void(unsigned idx)> fn, unsigned n, std::ptrdif
   profiler_.LogStartAndCoreAndBlock(block_size);
   profiler_.LogWorkInfo(total, n);
   PerThread* pt = GetPerThread();
+  // profiler_.LogPrefWorkers(pt->preferred_workers);
   ThreadPoolParallelSection ps;
   StartParallelSectionInternal(*pt, ps);
   RunInParallelInternal(*pt, ps, n, true, fn);  // select dispatcher and do job distribution;
@@ -1265,6 +1275,7 @@ void RunInParallel(std::function<void(unsigned idx)> fn, unsigned n, std::ptrdif
   fn(0);  // run fn(0)
   profiler_.LogEndAndStart(ThreadPoolProfiler::RUN);
   EndParallelSectionInternal(*pt, ps);  // wait for all
+  profiler_.LogRevoked(ps.tasks_revoked);
   profiler_.LogEnd(ThreadPoolProfiler::WAIT);
 }
 
@@ -1446,6 +1457,7 @@ int CurrentThreadId() const EIGEN_FINAL {
     PerThread* pt = GetPerThread();
     WorkerData& td = worker_data_[thread_id];
     Queue& q = td.queue;
+    TimePoint now;
     bool should_exit = false;
     pt->pool = this;
     pt->thread_id = thread_id;
@@ -1539,8 +1551,9 @@ int CurrentThreadId() const EIGEN_FINAL {
       }
       if (t) {
         td.SetActive();
+        now = std::chrono::high_resolution_clock::now();
         t();
-        profiler_.LogRun(thread_id);
+        profiler_.LogRun(thread_id, now);
         td.SetSpinning();
       }
     }
