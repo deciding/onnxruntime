@@ -28,6 +28,7 @@
 #include "core/optimizer/identity_elimination.h"
 #include "core/optimizer/layer_norm_fusion.h"
 #include "core/optimizer/matmul_add_fusion.h"
+#include "core/optimizer/conformer/matmul_bias_fusion.h"
 #include "core/optimizer/matmul_integer_to_float.h"
 #include "core/optimizer/matmul_scale_fusion.h"
 #include "core/optimizer/nchwc_transformer.h"
@@ -195,6 +196,8 @@ std::vector<std::unique_ptr<GraphTransformer>> GenerateTransformers(
 
       transformers.emplace_back(std::make_unique<FastGeluFusion>(cpu_cuda_rocm_eps));
 
+      // my matmul bias
+      transformers.emplace_back(std::make_unique<MatMulBiasFusion>(cpu_ep));
       transformers.emplace_back(std::make_unique<MatMulScaleFusion>(cpu_cuda_rocm_eps));
 
       // GeluApproximation has side effects which may change results. It needs to be manually enabled,

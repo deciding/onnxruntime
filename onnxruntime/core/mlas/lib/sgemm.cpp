@@ -1015,7 +1015,8 @@ MlasSgemmKernelLoop(
     size_t lda,
     size_t ldc,
     float alpha,
-    bool ZeroMode
+    bool ZeroMode,
+    const float* Bias = nullptr
     )
 /*++
 
@@ -1062,7 +1063,10 @@ Return Value:
         size_t RowsHandled;
 
 #if defined(MLAS_TARGET_AMD64_IX86)
-        RowsHandled = MlasPlatform.GemmFloatKernel(A, B, C, CountK, CountM, CountN, lda, ldc, alpha, ZeroMode);
+        if(Bias)
+            RowsHandled = MlasPlatform.GemmFloatKernelBias(A, B, C, CountK, CountM, CountN, lda, ldc, alpha, ZeroMode, Bias);
+        else
+            RowsHandled = MlasPlatform.GemmFloatKernel(A, B, C, CountK, CountM, CountN, lda, ldc, alpha, ZeroMode);
 #elif defined(MLAS_TARGET_POWER)
         RowsHandled = MlasSgemmKernel(A, B, C, CountK, CountM, CountN, lda, ldc, alpha, ZeroMode);
 #else
@@ -1334,7 +1338,8 @@ MlasSgemmPackedOperation(
     size_t AlignedN,
     float beta,
     float* C,
-    size_t ldc
+    size_t ldc,
+    const float* Bias = nullptr
     )
 /*++
 
@@ -1420,9 +1425,16 @@ Return Value:
             const float* pb = (const float*)PackedB + AlignedN * k + CountK * SliceStartN;
             float* c = C + n;
 
+            if(k==0 && Bias){
+                ZeroMode = false;
+            }
+            else{
+                Bias = nullptr; // otherwise will activate the Bias version of Gemm, even though ZeroMode is false
+            }
+
             if (TransA == CblasNoTrans) {
 
-                MlasSgemmKernelLoop(A + k, pb, c, CountK, M, CountN, lda, ldc, alpha, ZeroMode);
+                MlasSgemmKernelLoop(A + k, pb, c, CountK, M, CountN, lda, ldc, alpha, ZeroMode, Bias);
 
             } else {
 
@@ -1446,7 +1458,7 @@ Return Value:
                     // Step through the rows of the local buffer.
                     //
 
-                    c = MlasSgemmKernelLoop(PanelA, pb, c, CountK, RowsTransposed, CountN, CountK, ldc, alpha, ZeroMode);
+                    c = MlasSgemmKernelLoop(PanelA, pb, c, CountK, RowsTransposed, CountN, CountK, ldc, alpha, ZeroMode, Bias);
                 }
             }
 
@@ -1537,12 +1549,15 @@ Return Value:
 
     const float* A = DataParams->A + RangeStartM * ((TransA == CblasNoTrans) ? lda : 1);
     float* C = DataParams->C + RangeStartM * ldc + RangeStartN;
+    const float* Bias = nullptr;
+    if(DataParams->Bias)
+        Bias = DataParams->Bias + RangeStartN;
 
     if (DataParams->BIsPacked) {
 
         MlasSgemmPackedOperation(TransA, RangeCountM, RangeStartN, RangeCountN,
             K, DataParams->alpha, A, lda, DataParams->B,
-            BlockedN * MLAS_SGEMM_STRIDEN_THREAD_ALIGN, DataParams->beta, C, ldc);
+            BlockedN * MLAS_SGEMM_STRIDEN_THREAD_ALIGN, DataParams->beta, C, ldc, Bias);
 
     } else {
 

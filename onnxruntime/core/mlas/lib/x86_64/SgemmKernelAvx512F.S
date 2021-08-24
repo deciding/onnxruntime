@@ -20,6 +20,7 @@ Abstract:
 #include "asmmacro.h"
 #include "SgemmKernelCommon.h"
 #include "FgemmKernelAvx512FCommon.h"
+#include "FgemmKernelBiasAvx512FCommon.h"
 
         .intel_syntax noprefix
 
@@ -30,5 +31,7 @@ Abstract:
 //
 
 FgemmKernelAvx512FFunction MlasGemmFloatKernelAvx512F
+
+FgemmKernelBiasAvx512FFunction MlasGemmFloatKernelBiasAvx512F
 
         .end

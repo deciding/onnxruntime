@@ -164,6 +164,7 @@ struct MLAS_SGEMM_DATA_PARAMS {
     float alpha = 1.0f;       /**< Supplies the scalar alpha multiplier (see SGEMM definition) */
     float beta = 0.0f;        /**< Supplies the scalar beta multiplier (see SGEMM definition) */
     bool BIsPacked = false;   /**< Whether B is pre-packed */
+    const float* Bias = nullptr; /**< Supplies the address of matrix B */
 };
 
 /**

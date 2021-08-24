@@ -46,41 +46,41 @@ Return Value:
         FUNCTION_ENTRY MlasComputeExpF32KernelAvx512F
 
         lea     rax,C_UNDERSCORE(MlasExpConstants)[rip]
-        vbroadcastss zmm21,.LExpConstants_LowerRange[rax]
-        vbroadcastss zmm22,.LExpConstants_RoundingBias[rax]
-        vbroadcastss zmm23,.LExpConstants_Log2Reciprocal[rax]
-        vbroadcastss zmm24,.LExpConstants_Log2High[rax]
-        vbroadcastss zmm25,.LExpConstants_Log2Low[rax]
-        vbroadcastss zmm26,.LExpConstants_poly_0[rax]
-        vbroadcastss zmm27,.LExpConstants_poly_1[rax]
-        vbroadcastss zmm28,.LExpConstants_poly_2[rax]
-        vbroadcastss zmm29,.LExpConstants_poly_3[rax]
-        vbroadcastss zmm30,.LExpConstants_poly_4[rax]
-        vbroadcastss zmm31,.LExpConstants_poly_56[rax]
+        vbroadcastss zmm21,.LExpConstants_LowerRange[rax] # -103.9720840454f
+        vbroadcastss zmm22,.LExpConstants_RoundingBias[rax] # 12582912.f
+        vbroadcastss zmm23,.LExpConstants_Log2Reciprocal[rax] # 1.44269504088896341f 1/ln2
+        vbroadcastss zmm24,.LExpConstants_Log2High[rax] # -6.93145752e-1f
+        vbroadcastss zmm25,.LExpConstants_Log2Low[rax] #  -1.42860677e-6f
+        vbroadcastss zmm26,.LExpConstants_poly_0[rax] # 0x1.694000p-10
+        vbroadcastss zmm27,.LExpConstants_poly_1[rax] # 0x1.125edcp-7
+        vbroadcastss zmm28,.LExpConstants_poly_2[rax] # 0x1.555b5ap-5
+        vbroadcastss zmm29,.LExpConstants_poly_3[rax] # 0x1.555450p-3
+        vbroadcastss zmm30,.LExpConstants_poly_4[rax] # 0x1.fffff6p-2
+        vbroadcastss zmm31,.LExpConstants_poly_56[rax] # 0x1.000000p+0
 
         sub     rdx,16
         jb      .LComputeExp.ProcessRemainingCount
 
-.LComputeExp.ComputeExpBy16Loop:
+.LComputeExp.ComputeExpBy16Loop: # process 16 elements
         vmaxps  zmm16,zmm21,ZMMWORD PTR [rdi]   # clamp lower bound
-        vmovaps zmm18,zmm23
+        vmovaps zmm18,zmm23                     # 1 / ln2
         vfmadd213ps zmm18,zmm16,zmm22           # (input / ln2) plus rounding bias
         vmovaps zmm17,zmm26                     # p = poly_0
-        vsubps  zmm18,zmm18,zmm22               # m = round(input / ln2)
-        vfmadd231ps zmm16,zmm18,zmm24           # range reduce: x -= (m * ln2_high)
-        vfmadd231ps zmm16,zmm18,zmm25           # range reduce: x -= (m * ln2_low)
-        vmovaps zmm17,zmm26                     # p = poly_0
+        vsubps  zmm18,zmm18,zmm22               # m = round(input / ln2) minus bias again, why? input:zmm16 m:zmm18
+        vfmadd231ps zmm16,zmm18,zmm24           # range reduce: x -= (m * ln2_high) zmm24
+        vfmadd231ps zmm16,zmm18,zmm25           # range reduce: x -= (m * ln2_low) zmm25
+        vmovaps zmm17,zmm26                     # p(zmm17) = poly_0
         vfmadd213ps zmm17,zmm16,zmm27           # p = p * x + poly_1
         vfmadd213ps zmm17,zmm16,zmm28           # p = p * x + poly_2
         vfmadd213ps zmm17,zmm16,zmm29           # p = p * x + poly_3
         vfmadd213ps zmm17,zmm16,zmm30           # p = p * x + poly_4
         vfmadd213ps zmm17,zmm16,zmm31           # p = p * x + poly_5
         vfmadd213ps zmm17,zmm16,zmm31           # p = p * x + poly_6
-        vscalefps zmm17,zmm17,zmm18             # scale p with exponent
+        vscalefps zmm17,zmm17,zmm18             # scale p with exponent p *= 2^m
         add     rdi,16*4                        # advance input by 16 elements
-        vmovups ZMMWORD PTR [rsi],zmm17
+        vmovups ZMMWORD PTR [rsi],zmm17         # p to output
         add     rsi,16*4                        # advance output by 16 elements
-        sub     rdx,16
+        sub     rdx,16                          # D -= 16
         jae     .LComputeExp.ComputeExpBy16Loop
 
 .LComputeExp.ProcessRemainingCount:
@@ -91,7 +91,7 @@ Return Value:
         vmaxps  zmm16{k1}{z},zmm21,ZMMWORD PTR [rdi]
                                                 # clamp lower bound
         vfmadd213ps zmm23,zmm16,zmm22           # (input / ln2) plus rounding bias
-        vsubps  zmm23,zmm23,zmm22               # round(input / ln2)
+        vsubps  zmm23,zmm23,zmm22               # round(input / ln2) m : zmm23
         vfmadd231ps zmm16,zmm23,zmm24           # range reduce: x -= (m * ln2_high)
         vfmadd231ps zmm16,zmm23,zmm25           # range reduce: x -= (m * ln2_low)
         vfmadd213ps zmm26,zmm16,zmm27           # p = p * x + poly_1

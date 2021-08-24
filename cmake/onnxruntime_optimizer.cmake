@@ -15,6 +15,8 @@ else()
     "${ONNXRUNTIME_ROOT}/core/optimizer/*.cc"
     "${ONNXRUNTIME_ROOT}/core/optimizer/qdq_transformer/*.h"
     "${ONNXRUNTIME_ROOT}/core/optimizer/qdq_transformer/*.cc"
+    "${ONNXRUNTIME_ROOT}/core/optimizer/conformer/*.h"
+    "${ONNXRUNTIME_ROOT}/core/optimizer/conformer/*.cc"
   )
 endif()
 

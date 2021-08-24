@@ -1,103 +1,51 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
-#include "core/providers/cpu/math/matmul.h"
-#include "core/providers/cpu/math/gemm_matmul_common.h"
-#include "core/providers/cpu/math/matmul_helper.h"
+#include "matmul_bias.h"
+#include "matmul_bias_helper.h"
+#include "core/providers/cpu/math/gemm_matmul_common.h" // GemmPackBFp32
 #include "core/util/math.h"
-#include "core/util/math_cpuonly.h"
+
+// #include "core/util/math_cpuonly.h"
 #include "core/mlas/inc/mlas.h"
 
+// #include "core/framework/tensorprotoutils.h"
+// #include "onnx/defs/tensor_proto_util.h"
+// #include "core/common/safeint.h"
+// #include "core/framework/tensor.h"
+// #include "core/platform/threadpool.h"
+// #include "core/providers/common.h"
+// #include "core/util/math_cpuonly.h"
+// #include "core/mlas/inc/mlas.h"
+// #include "core/framework/op_kernel.h"
+
 namespace onnxruntime {
+namespace contrib {
 
-ONNX_CPU_OPERATOR_VERSIONED_TYPED_KERNEL(
-    MatMul,
-    1, 8,
+
+// register the opkernel to MS domain
+ONNX_OPERATOR_TYPED_KERNEL_EX(
+    MatMulBias,
+    kMSDomain,
+    1,
     float,
-    KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<float>()),
-    MatMul<float>);
-
-ONNX_CPU_OPERATOR_VERSIONED_TYPED_KERNEL(
-    MatMul,
-    1, 8,
-    double,
-    KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<double>()),
-    MatMul<double>);
-
-// opset 9 supports more types
-ONNX_CPU_OPERATOR_VERSIONED_TYPED_KERNEL(
-    MatMul,
-    9,
-    12,
-    float,
-    KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<float>()),
-    MatMul<float>);
-
-ONNX_CPU_OPERATOR_VERSIONED_TYPED_KERNEL(
-    MatMul,
-    9,
-    12,
-    double,
-    KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<double>()),
-    MatMul<double>);
-
-ONNX_CPU_OPERATOR_VERSIONED_TYPED_KERNEL(
-    MatMul,
-    9,
-    12,
-    int32_t,
+    kCpuExecutionProvider,
     KernelDefBuilder()
-        .TypeConstraint("T", BuildKernelDefConstraints<int32_t, uint32_t>()),
-    MatMul<int32_t>);
+        .TypeConstraint("T", DataTypeImpl::GetTensorType<float>()),
+    MatMulBias<float>);
 
-ONNX_CPU_OPERATOR_VERSIONED_TYPED_KERNEL(
-    MatMul,
-    9,
-    12,
-    int64_t,
-    KernelDefBuilder()
-        .TypeConstraint("T", BuildKernelDefConstraints<int64_t, uint64_t>()),
-    MatMul<int64_t>);
 
-ONNX_CPU_OPERATOR_TYPED_KERNEL(
-    MatMul,
-    13,
-    float,
-    KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<float>()),
-    MatMul<float>);
-
-ONNX_CPU_OPERATOR_TYPED_KERNEL(
-    MatMul,
-    13,
-    double,
-    KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<double>()),
-    MatMul<double>);
-
-ONNX_CPU_OPERATOR_TYPED_KERNEL(
-    MatMul,
-    13,
-    int32_t,
-    KernelDefBuilder()
-        .TypeConstraint("T", BuildKernelDefConstraints<int32_t, uint32_t>()),
-    MatMul<int32_t>);
-
-ONNX_CPU_OPERATOR_TYPED_KERNEL(
-    MatMul,
-    13,
-    int64_t,
-    KernelDefBuilder()
-        .TypeConstraint("T", BuildKernelDefConstraints<int64_t, uint64_t>()),
-    MatMul<int64_t>);
-
+// general: not supported, since it uses a math function version of Gemm and I don't want to change that file now
 template <typename T>
-Status MatMul<T>::Compute(OpKernelContext* ctx) const {
+Status MatMulBias<T>::Compute(OpKernelContext* ctx) const {
   concurrency::ThreadPool* thread_pool = ctx->GetOperatorThreadPool();
 
   const auto* a = ctx->Input<Tensor>(0);
   const auto* b = ctx->Input<Tensor>(1);
+  const auto* bias = ctx->Input<Tensor>(2);
 
-  MatMulComputeHelper helper;
-  ORT_RETURN_IF_ERROR(helper.Compute(a->Shape(), b->Shape()));
+  MatMulBiasComputeHelper helper;
+  ORT_RETURN_IF_ERROR(helper.Compute(a->Shape(), b->Shape(), bias->Shape()));
   Tensor* y = ctx->Output(0, helper.OutputShape());
 
   // Bail out early if the output is going to be empty
@@ -108,9 +56,11 @@ Status MatMul<T>::Compute(OpKernelContext* ctx) const {
   // operator body.
   const auto* a_data = reinterpret_cast<const T*>(a->DataRaw());
   const auto* b_data = reinterpret_cast<const T*>(b->DataRaw());
+  const auto* bias_data = reinterpret_cast<const T*>(bias->DataRaw());
   auto* y_data = reinterpret_cast<T*>(y->MutableDataRaw());
 
   // TODO: replace it with GemmBatch for performance, it's OK for now as GemmBatch unrolls as well
+  // do not support bias currently
   size_t max_len = helper.OutputOffsets().size();
   for (size_t i = 0; i < max_len; i++) {
     math::MatMul<T>(
@@ -126,7 +76,8 @@ Status MatMul<T>::Compute(OpKernelContext* ctx) const {
   return Status::OK();
 }
 
-Status MatMul<float>::PrePack(const Tensor& tensor, int input_idx, bool& is_packed) {
+
+Status MatMulBias<float>::PrePack(const Tensor& tensor, int input_idx, bool& is_packed) {
   is_packed = false;
 
   // only pack Matrix B
@@ -136,19 +87,20 @@ Status MatMul<float>::PrePack(const Tensor& tensor, int input_idx, bool& is_pack
   return Status::OK();
 }
 
-Status MatMul<float>::Compute(OpKernelContext* ctx) const {
+Status MatMulBias<float>::Compute(OpKernelContext* ctx) const {
   concurrency::ThreadPool* thread_pool = ctx->GetOperatorThreadPool();
 
   const Tensor* a = ctx->Input<Tensor>(0);
   const Tensor* b = packed_b_ ? nullptr : ctx->Input<Tensor>(1);
   const auto& b_shape = b ? b->Shape() : b_shape_;
+  const Tensor* bias = ctx->Input<Tensor>(2);
 
   // match CUDA kernel implementation, ignore transpose for vectors
   const bool trans_a = trans_a_attr_ && a->Shape().NumDimensions() != 1;
   const bool trans_b = trans_b_attr_ && b_shape.NumDimensions() != 1;
 
-  MatMulComputeHelper helper;
-  ORT_RETURN_IF_ERROR(helper.Compute(a->Shape(), b_shape, trans_a, trans_b));
+  MatMulBiasComputeHelper helper;
+  ORT_RETURN_IF_ERROR(helper.Compute(a->Shape(), b_shape, bias->Shape(), trans_a, trans_b)); // no need bias shape for check for now
   Tensor* y = ctx->Output(0, helper.OutputShape());
 
   // Bail out early if the output is going to be empty
@@ -157,6 +109,7 @@ Status MatMul<float>::Compute(OpKernelContext* ctx) const {
 
   const auto* a_data = a->Data<float>();
   const auto* b_data = b ? b->Data<float>() : nullptr;
+  const auto* bias_data = bias->Data<float>();
   auto* y_data = y->MutableData<float>();
 
   const size_t max_len = helper.OutputOffsets().size();
@@ -175,23 +128,29 @@ Status MatMul<float>::Compute(OpKernelContext* ctx) const {
     data[i].ldb = ldb;
     data[i].C = y_data + helper.OutputOffsets()[i];
     data[i].ldc = N;
+    data[i].Bias = bias_data + helper.BiasOffsets()[i];
     data[i].alpha = alpha_attr_;
     data[i].beta = 0.0f;
   }
+  // change function
   MlasGemmBatch(trans_a ? CblasTrans : CblasNoTrans, trans_b ? CblasTrans : CblasNoTrans,
       M, N, K, data.data(), max_len, thread_pool);
 
-  //FILE *f = fopen("A.data", "wb");
+  //FILE *f = fopen("Ab.data", "wb");
   //fwrite(data[0].A, sizeof(float), M * K, f);
   //fclose(f);
-  //f = fopen("B.data", "wb");
+  //f = fopen("Bb.data", "wb");
   //fwrite(data[0].B, sizeof(float), N * K, f);
   //fclose(f);
-  //f = fopen("C.data", "wb");
+  //f = fopen("Cb.data", "wb");
   //fwrite(data[0].C, sizeof(float), M * N, f);
+  //fclose(f);
+  //f = fopen("bias.data", "wb");
+  //fwrite(data[0].Bias, sizeof(float), N, f);
   //fclose(f);
 
   return Status::OK();
 }
 
-}  // namespace onnxruntime
+} // contrib
+} // onnxruntime

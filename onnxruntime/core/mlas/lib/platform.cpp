@@ -287,6 +287,7 @@ Return Value:
                 if (((Cpuid7[1] & 0x10000) != 0) && ((xcr0 & 0xE0) == 0xE0)) {
 
                     this->GemmFloatKernel = MlasGemmFloatKernelAvx512F;
+                    this->GemmFloatKernelBias = MlasGemmFloatKernelBiasAvx512F;
                     this->GemmDoubleKernel = MlasGemmDoubleKernelAvx512F;
                     this->ConvNchwFloatKernel = MlasConvNchwFloatKernelAvx512F;
                     this->ConvNchwcFloatKernel = MlasConvNchwcFloatKernelAvx512F;

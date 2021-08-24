@@ -162,6 +162,22 @@ size_t
 
 typedef
 size_t
+(MLASCALL MLAS_GEMM_FLOAT_KERNEL_BIAS)(
+    const float* A,
+    const float* B,
+    float* C,
+    size_t CountK,
+    size_t CountM,
+    size_t CountN,
+    size_t lda,
+    size_t ldc,
+    float alpha,
+    bool ZeroMode,
+    const float* Bias
+    );
+
+typedef
+size_t
 (MLASCALL MLAS_GEMM_DOUBLE_KERNEL)(
     const double* A,
     const double* B,
@@ -490,6 +506,7 @@ extern "C" {
 #if defined(MLAS_TARGET_AMD64)
     MLAS_GEMM_FLOAT_KERNEL MlasGemmFloatKernelFma3;
     MLAS_GEMM_FLOAT_KERNEL MlasGemmFloatKernelAvx512F;
+    MLAS_GEMM_FLOAT_KERNEL_BIAS MlasGemmFloatKernelBiasAvx512F; // import
     MLAS_GEMM_DOUBLE_KERNEL MlasGemmDoubleKernelSse;
     MLAS_GEMM_DOUBLE_KERNEL MlasGemmDoubleKernelAvx;
     MLAS_GEMM_DOUBLE_KERNEL MlasGemmDoubleKernelFma3;
@@ -704,6 +721,7 @@ struct MLAS_PLATFORM {
 
 #if defined(MLAS_TARGET_AMD64_IX86)
     MLAS_GEMM_FLOAT_KERNEL* GemmFloatKernel;
+    MLAS_GEMM_FLOAT_KERNEL_BIAS* GemmFloatKernelBias;
 #endif
 
 #if defined(MLAS_TARGET_AMD64)

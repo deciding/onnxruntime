@@ -1811,6 +1811,16 @@ void UntypedBroadcastTwo(OpKernelContext& context, const ProcessBroadcastSpanFun
           BroadcastLooper(segment_helper, funcs);
         });
   }
+  //FILE *f = fopen("input0.data", "wb");
+  //fwrite((input0_tensor.Data<float>()), sizeof(float), input0_tensor.Shape().Size(), f);
+  //fclose(f);
+  //f = fopen("input1.data", "wb");
+  //fwrite((input1_tensor.Data<float>()), sizeof(float), input1_tensor.Shape().Size(), f);
+  //fclose(f);
+  //f = fopen("output.data", "wb");
+  //fwrite((output_tensor.Data<float>()), sizeof(float), output_tensor.Shape().Size(), f);
+  //fclose(f);
+
 }
 
 // allocate_tensor should allocate a tensor of the output type with the given shape

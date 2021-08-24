@@ -2314,6 +2314,7 @@ Example 4:
   }
 
   RegisterNhwcSchemas();
+  RegisterConformerSchemas();
 
   static const char* Gelu_ver1_doc =
       R"DOC(Gaussian Error Linear Unit.
