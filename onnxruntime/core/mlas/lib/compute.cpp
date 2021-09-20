@@ -26,6 +26,14 @@ Abstract:
 //
 
 MLAS_INTERNAL_DATA const struct {
+    float SQRT1_2;
+    float HALF;
+} MlasMiscConstants = {
+    M_SQRT1_2,
+    0.5f,
+};
+
+MLAS_INTERNAL_DATA const struct {
     float LowerRange;
     float UpperRange;
     float LowerRangeSumExp;

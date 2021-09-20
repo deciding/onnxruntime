@@ -160,6 +160,7 @@ size_t
     bool ZeroMode
     );
 
+// NOTE: define infterface
 typedef
 size_t
 (MLASCALL MLAS_GEMM_FLOAT_KERNEL_BIAS)(
@@ -175,6 +176,16 @@ size_t
     bool ZeroMode,
     const float* Bias
     );
+
+typedef
+void
+(MLASCALL MLAS_COMPUTE_BIAS_FLOAT_KERNEL)(
+    const float* Input,
+    float* Output,
+    size_t N,
+    const float* Bias
+    );
+
 
 typedef
 size_t
@@ -506,7 +517,13 @@ extern "C" {
 #if defined(MLAS_TARGET_AMD64)
     MLAS_GEMM_FLOAT_KERNEL MlasGemmFloatKernelFma3;
     MLAS_GEMM_FLOAT_KERNEL MlasGemmFloatKernelAvx512F;
+
+    // NOTE: import from asm
     MLAS_GEMM_FLOAT_KERNEL_BIAS MlasGemmFloatKernelBiasAvx512F; // import
+    MLAS_GEMM_FLOAT_KERNEL_BIAS MlasGemmFloatKernelBiasPostAvx512F; // import
+    MLAS_COMPUTE_UNARY_FLOAT_KERNEL MlasErfKernelAvx512; // import
+    MLAS_COMPUTE_BIAS_FLOAT_KERNEL MlasBiasGeluAvx512; // import
+
     MLAS_GEMM_DOUBLE_KERNEL MlasGemmDoubleKernelSse;
     MLAS_GEMM_DOUBLE_KERNEL MlasGemmDoubleKernelAvx;
     MLAS_GEMM_DOUBLE_KERNEL MlasGemmDoubleKernelFma3;
@@ -721,7 +738,11 @@ struct MLAS_PLATFORM {
 
 #if defined(MLAS_TARGET_AMD64_IX86)
     MLAS_GEMM_FLOAT_KERNEL* GemmFloatKernel;
+    // NOTE: define member, assign it to imported asm in platform.cpp
     MLAS_GEMM_FLOAT_KERNEL_BIAS* GemmFloatKernelBias;
+    MLAS_GEMM_FLOAT_KERNEL_BIAS* GemmFloatKernelBiasPost;
+    MLAS_COMPUTE_UNARY_FLOAT_KERNEL* ErfKernelRoutineAvx512;
+    MLAS_COMPUTE_BIAS_FLOAT_KERNEL* BiasGeluKernelAvx512;
 #endif
 
 #if defined(MLAS_TARGET_AMD64)

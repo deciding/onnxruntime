@@ -1649,6 +1649,316 @@ MlasGemmBatch(
     });
 }
 
+/*----------------*/
+
+MLAS_FORCEINLINE
+float*
+MlasSgemmKernelLoopKN(
+    const float* A,
+    const float* B,
+    float* C,
+    size_t CountK,
+    size_t CountM,
+    size_t CountN,
+    size_t lda,
+    size_t ldc,
+    float alpha,
+    bool ZeroMode,
+    const float* Bias = nullptr
+    )
+{
+    while (CountM > 0) {
+
+        size_t RowsHandled;
+
+#if defined(MLAS_TARGET_AMD64_IX86)
+        if(Bias)
+            RowsHandled = MlasPlatform.GemmFloatKernelBiasPost(A, B, C, CountK, CountM, CountN, lda, ldc, alpha, ZeroMode, Bias);
+        else
+            RowsHandled = MlasPlatform.GemmFloatKernel(A, B, C, CountK, CountM, CountN, lda, ldc, alpha, ZeroMode);
+#elif defined(MLAS_TARGET_POWER)
+        RowsHandled = MlasSgemmKernel(A, B, C, CountK, CountM, CountN, lda, ldc, alpha, ZeroMode);
+#else
+        if (ZeroMode) {
+            RowsHandled = MlasSgemmKernelZero(A, B, C, CountK, CountM, CountN, lda, ldc, alpha);
+        } else {
+            RowsHandled = MlasSgemmKernelAdd(A, B, C, CountK, CountM, CountN, lda, ldc, alpha);
+        }
+#endif
+
+        C += ldc * RowsHandled;
+        A += lda * RowsHandled;
+        CountM -= RowsHandled;
+    }
+
+    return C;
+}
+
+void
+MlasSgemmPackedOperationKN(
+    CBLAS_TRANSPOSE TransA,
+    size_t M,
+    size_t RangeStartN,
+    size_t RangeCountN,
+    size_t K,
+    float alpha,
+    const float* A,
+    size_t lda,
+    const void* PackedB,
+    size_t AlignedN,
+    float beta,
+    float* C,
+    size_t ldc,
+    size_t StrideK,
+    size_t StrideN,
+
+    const float* Bias = nullptr
+    )
+{
+    float PanelA[MLAS_SGEMM_TRANSA_ROWS * StrideK];
+
+    //
+    // Step through each slice of matrix B along the N dimension.
+    //
+
+    size_t CountN;
+
+    for (size_t n = 0; n < RangeCountN; n += CountN) {
+
+        const size_t SliceStartN = RangeStartN + n;
+
+        CountN = std::min(RangeCountN - n, size_t(StrideN));
+
+        //
+        // Multiply the output matrix by beta as needed.
+        //
+
+        if (beta != 0.0f && beta != 1.0f) {
+            MlasSgemmMultiplyBeta(C + n, M, CountN, ldc, beta);
+        }
+
+        //
+        // Step through each slice of matrix B along the K dimension.
+        //
+
+        size_t CountK;
+        bool ZeroMode = (beta == 0.0f);
+
+        for (size_t k = 0; k < K; k += CountK) {
+
+            CountK = std::min(K - k, size_t(StrideK));
+
+            //
+            // Step through each slice of matrix A along the M dimension.
+            //
+
+            const float* pb = (const float*)PackedB + AlignedN * k + CountK * SliceStartN;
+            float* c = C + n;
+
+            // new version not expecting Bias to change zero mode
+            // if(k==0 && Bias){
+            //     ZeroMode = false;
+            // }
+            // else{
+            //     Bias = nullptr; // otherwise will activate the Bias version of Gemm, even though ZeroMode is false
+            // }
+
+            if (TransA == CblasNoTrans) {
+
+                MlasSgemmKernelLoopKN(A + k, pb, c, CountK, M, CountN, lda, ldc, alpha, ZeroMode, Bias);
+
+            } else {
+
+                const float* a = A + k * lda;
+                size_t RowsRemaining = M;
+
+                while (RowsRemaining > 0) {
+
+                    //
+                    // Transpose elements from matrix A into a local buffer.
+                    //
+
+                    size_t RowsTransposed = std::min(RowsRemaining, size_t(MLAS_SGEMM_TRANSA_ROWS));
+
+                    MlasSgemmTransposeA(PanelA, a, lda, RowsTransposed, CountK);
+
+                    RowsRemaining -= RowsTransposed;
+                    a += RowsTransposed;
+
+                    //
+                    // Step through the rows of the local buffer.
+                    //
+
+                    c = MlasSgemmKernelLoopKN(PanelA, pb, c, CountK, RowsTransposed, CountN, CountK, ldc, alpha, ZeroMode, Bias);
+                }
+            }
+
+            ZeroMode = false;
+        }
+    }
+}
+
+void
+MlasSgemmThreadedKN(
+    const ptrdiff_t ThreadCountM,
+    const ptrdiff_t ThreadCountN,
+    const CBLAS_TRANSPOSE TransA,
+    const CBLAS_TRANSPOSE TransB,
+    const size_t M,
+    const size_t N,
+    const size_t K,
+    const size_t StrideK,
+    const size_t StrideN,
+
+    const MLAS_SGEMM_DATA_PARAMS* DataParams,
+    ptrdiff_t ThreadId
+    )
+{
+
+    const ptrdiff_t ThreadIdM = ThreadId / ThreadCountN;
+    const ptrdiff_t ThreadIdN = ThreadId % ThreadCountN;
+
+    //
+    // Partition the operation along the M dimension.
+    //
+
+    size_t RangeStartM;
+    size_t RangeCountM;
+
+    MlasPartitionWork(ThreadIdM, ThreadCountM, M, &RangeStartM, &RangeCountM);
+
+    //
+    // Partition the operation along the N dimension.
+    //
+
+    size_t RangeStartN;
+    size_t RangeCountN;
+
+    const size_t BlockedN = (N + MLAS_SGEMM_STRIDEN_THREAD_ALIGN - 1) /
+        MLAS_SGEMM_STRIDEN_THREAD_ALIGN;
+
+    MlasPartitionWork(ThreadIdN, ThreadCountN, BlockedN, &RangeStartN,
+        &RangeCountN);
+
+    RangeStartN *= MLAS_SGEMM_STRIDEN_THREAD_ALIGN;
+    RangeCountN *= MLAS_SGEMM_STRIDEN_THREAD_ALIGN;
+
+    RangeCountN = std::min(N - RangeStartN, RangeCountN);
+
+    //
+    // Dispatch the partitioned operation.
+    //
+
+    const size_t lda = DataParams->lda;
+    const size_t ldc = DataParams->ldc;
+
+    const float* A = DataParams->A + RangeStartM * ((TransA == CblasNoTrans) ? lda : 1);
+    float* C = DataParams->C + RangeStartM * ldc + RangeStartN;
+    const float* Bias = nullptr;
+    if(DataParams->Bias)
+        Bias = DataParams->Bias + RangeStartN;
+
+    if (DataParams->BIsPacked) {
+
+        MlasSgemmPackedOperationKN(TransA, RangeCountM, RangeStartN, RangeCountN,
+            K, DataParams->alpha, A, lda, DataParams->B,
+            BlockedN * MLAS_SGEMM_STRIDEN_THREAD_ALIGN, DataParams->beta, C, ldc, StrideK, StrideN, Bias);
+
+    } else {
+
+        const size_t ldb = DataParams->ldb;
+
+        const float* B = (const float*)DataParams->B + RangeStartN * ((TransB == CblasNoTrans) ? 1 : ldb);
+
+        MlasSgemmOperation(TransA, TransB, RangeCountM, RangeCountN, K,
+            DataParams->alpha, A, lda, B, ldb, DataParams->beta, C, ldc);
+    }
+}
+
+void
+MLASCALL
+MlasGemmBatchKN(
+    CBLAS_TRANSPOSE TransA,
+    CBLAS_TRANSPOSE TransB,
+    size_t M,
+    size_t N,
+    size_t K,
+    const MLAS_SGEMM_DATA_PARAMS* Data,
+    size_t BatchSize,
+    MLAS_THREADPOOL* ThreadPool,
+    size_t StrideK, size_t StrideN, ptrdiff_t T, bool ParallelM=false
+    )
+{
+
+    //
+    // Compute the number of target threads given the complexity of the SGEMM
+    // operation. Small requests should run using the single threaded path.
+    //
+
+    const double Complexity = double(M) * double(N) * double(K);
+
+    ptrdiff_t TargetThreadCount;
+
+    if (Complexity < double(MLAS_SGEMM_THREAD_COMPLEXITY * MlasPlatform.MaximumThreadCount)) { // 60 * 1024 * 32
+        TargetThreadCount = ptrdiff_t(Complexity / double(MLAS_SGEMM_THREAD_COMPLEXITY)) + 1;
+    } else {
+        TargetThreadCount = MlasPlatform.MaximumThreadCount;
+    }
+
+    // ptrdiff_t MaximumThreadCount = MlasGetMaximumThreadCount(ThreadPool);
+
+    if (TargetThreadCount >= T) {
+        TargetThreadCount = T;
+    }
+
+    //
+    // Segment the operation across multiple threads.
+    //
+    // N.B. Currently, the operation is segmented as a 1D partition, which
+    // works okay for operations involving skinny matrices.
+    //
+
+    ptrdiff_t ThreadsPerGemm = (TargetThreadCount + BatchSize - 1) / BatchSize;
+    ptrdiff_t ThreadCountM;
+    ptrdiff_t ThreadCountN;
+
+    // if (N > M) {
+    if (!ParallelM) {
+
+        const size_t BlockedN = (N + MLAS_SGEMM_STRIDEN_THREAD_ALIGN - 1) /
+            MLAS_SGEMM_STRIDEN_THREAD_ALIGN;
+
+        if (size_t(ThreadsPerGemm) > BlockedN) {
+            ThreadsPerGemm = ptrdiff_t(BlockedN);
+        }
+
+        ThreadCountM = 1;
+        ThreadCountN = ThreadsPerGemm;
+
+    } else {
+
+        if (size_t(ThreadsPerGemm) > M) {
+            ThreadsPerGemm = ptrdiff_t(M);
+        }
+
+        ThreadCountM = ThreadsPerGemm;
+        ThreadCountN = 1;
+    }
+
+    MlasTrySimpleParallel(ThreadPool, 
+        ThreadsPerGemm * static_cast<ptrdiff_t>(BatchSize), 
+        [=](ptrdiff_t tid)
+    {
+        ptrdiff_t GemmIdx = tid / ThreadsPerGemm;
+        ptrdiff_t ThreadIdx = tid % ThreadsPerGemm;
+        MlasSgemmThreadedKN(ThreadCountM, ThreadCountN,
+            TransA, TransB, M, N, K, StrideK, StrideN, &(Data[GemmIdx]), ThreadIdx);
+    });
+}
+
+
+/*----------------*/
+
 size_t
 MLASCALL
 MlasGemmPackBSize(

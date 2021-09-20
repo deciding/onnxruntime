@@ -544,6 +544,21 @@ struct MLAS_GEMM_U8X8_DATA_PARAMS {
     const MLAS_QGEMM_OUTPUT_PROCESSOR* OutputProcessor = nullptr;
 };
 
+/*=======*/
+void
+MLASCALL
+MlasGemmBatchKN(
+    CBLAS_TRANSPOSE TransA,
+    CBLAS_TRANSPOSE TransB,
+    size_t M,
+    size_t N,
+    size_t K,
+    const MLAS_SGEMM_DATA_PARAMS* Data,
+    size_t BatchSize,
+    MLAS_THREADPOOL* ThreadPool,
+    size_t StrideK, size_t StrideN, ptrdiff_t T, bool ParallelM
+    );
+/*=======*/
 
 void
 MLASCALL
