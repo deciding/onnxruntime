@@ -290,8 +290,12 @@ Return Value:
                     // NOTE: assign
                     this->GemmFloatKernelBias = MlasGemmFloatKernelBiasAvx512F;
                     this->GemmFloatKernelBiasPost = MlasGemmFloatKernelBiasPostAvx512F;
+                    this->GemmFloatKernelHalfBias = MlasGemmFloatKernelHalfBiasAvx512F;
+                    this->GemmFloatKernelBiasMat = MlasGemmFloatKernelBiasMatAvx512F;
                     this->ErfKernelRoutineAvx512 = MlasErfKernelAvx512;
                     this->BiasGeluKernelAvx512 = MlasBiasGeluAvx512;
+                    this->SkipLayerNormAvx512 = MlasSkipLayerNormAvx512;
+                    this->SoftmaxStableAvx = MlasSoftmaxStableAvx;
 
                     this->GemmDoubleKernel = MlasGemmDoubleKernelAvx512F;
                     this->ConvNchwFloatKernel = MlasConvNchwFloatKernelAvx512F;

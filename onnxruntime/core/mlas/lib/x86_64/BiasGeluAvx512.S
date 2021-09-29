@@ -149,16 +149,28 @@ C_UNDERSCORE(MlasBiasGeluAvx512):
         vbroadcastss zmm15,ErfNegZero[rax]      # broad cast -0.0 to zmm15 8 vec, 100000...
         vbroadcastss zmm27,Misc_SQRT1_2[r11]      # broad cast 0.707... to zmm27 16 vec
         vbroadcastss zmm26,Misc_HALF[r11]      # broad cast 0.5 to zmm26 16 vec
-        vmovups zmm0,ZMMWORD PTR [rdi]          # original input vx0
-        vmovups zmm1,ZMMWORD PTR [rdi+64]       # original input vx1
-        vmovups zmm2,ZMMWORD PTR [rdi+128]       # original input vx2
-        vmovups zmm3,ZMMWORD PTR [rdi+192]       # original input vx3
+        //vmovups zmm0,ZMMWORD PTR [rdi]          # original input vx0
+        //vmovups zmm1,ZMMWORD PTR [rdi+64]       # original input vx1
+        //vmovups zmm2,ZMMWORD PTR [rdi+128]       # original input vx2
+        //vmovups zmm3,ZMMWORD PTR [rdi+192]       # original input vx3
+        vmovups zmm16,ZMMWORD PTR [rdi]          # original input vx0
+        vmovups zmm17,ZMMWORD PTR [rdi+64]       # original input vx1
+        vmovups zmm18,ZMMWORD PTR [rdi+128]       # original input vx2
+        vmovups zmm19,ZMMWORD PTR [rdi+192]       # original input vx3
 
-        vaddps zmm16,zmm0,ZMMWORD PTR [rcx]          # add bias
-        vaddps zmm17,zmm1,ZMMWORD PTR [rcx+64]
-        vaddps zmm18,zmm2,ZMMWORD PTR [rcx+128]
-        vaddps zmm19,zmm3,ZMMWORD PTR [rcx+192]
+        test   rcx,rcx
+        jz     .LComputeSqrtBG
+        //vaddps zmm16,zmm0,ZMMWORD PTR [rcx]          # add bias
+        //vaddps zmm17,zmm1,ZMMWORD PTR [rcx+64]
+        //vaddps zmm18,zmm2,ZMMWORD PTR [rcx+128]
+        //vaddps zmm19,zmm3,ZMMWORD PTR [rcx+192]
+        vaddps zmm16,zmm16,ZMMWORD PTR [rcx]          # add bias
+        vaddps zmm17,zmm17,ZMMWORD PTR [rcx+64]
+        vaddps zmm18,zmm18,ZMMWORD PTR [rcx+128]
+        vaddps zmm19,zmm19,ZMMWORD PTR [rcx+192]
+        add    rcx,64*4
 
+.LComputeSqrtBG:
         vmulps zmm0,zmm16,zmm27          # * sqrt(1/2)
         vmulps zmm1,zmm17,zmm27
         vmulps zmm2,zmm18,zmm27
@@ -456,7 +468,6 @@ C_UNDERSCORE(MlasBiasGeluAvx512):
 
         add     rdi,64*4                        # advance by 4*16 elements
         add     rsi,64*4
-        add     rcx,64*4
         sub     rdx,64
         jae     .LComputeBGBias4x16Loop
 
@@ -472,10 +483,16 @@ C_UNDERSCORE(MlasBiasGeluAvx512):
         # AVX512 version of masked load
         lea     r10,C_UNDERSCORE(MlasOpmask16BitTableAvx512)[rip]
         kmovw   k5,WORD PTR [r10+rdx*2] # rdx * 2byte
-        vmovups zmm0{k5}{z},ZMMWORD PTR [rdi]          # original input vx0
+        //vmovups zmm0{k5}{z},ZMMWORD PTR [rdi]          # original input vx0
+        vmovups zmm16{k5}{z},ZMMWORD PTR [rdi]          # original input vx0
 
-        vaddps zmm16{k5}{z},zmm0,ZMMWORD PTR [rcx]          # add bias
+        test   rcx,rcx
+        jz     .LComputeSqrtBG1x16
+        //vaddps zmm16{k5}{z},zmm0,ZMMWORD PTR [rcx]          # add bias
+        vaddps zmm16{k5}{z},zmm16,ZMMWORD PTR [rcx]          # add bias
+        add     rcx,16*4
 
+.LComputeSqrtBG1x16:
         vmulps zmm0,zmm16,zmm27          # * sqrt(1/2)
 
         vmulps zmm20,zmm16,zmm26          # * 0.5 for residual
@@ -611,7 +628,6 @@ C_UNDERSCORE(MlasBiasGeluAvx512):
 
         add     rdi,16*4
         add     rsi,16*4
-        add     rcx,16*4
         sub     rdx,16
         jg      .LComputeBGBias1x16Loop
 

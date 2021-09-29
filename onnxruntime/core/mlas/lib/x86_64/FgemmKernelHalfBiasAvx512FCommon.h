@@ -6,7 +6,7 @@ Licensed under the MIT License.
 
 Module Name:
 
-    FgemmKernelBiasAvx512FCommon.h
+    FgemmKernelHalfBiasAvx512FCommon.h
 
 Abstract:
 
@@ -21,14 +21,12 @@ Abstract:
     since we have zmm0 1 for B, zmm3 for A, zmm 4-27 for C, zmm 28-31 for constants or other floats
     that's why we need 2 columns, actualy 4 more regs are free: zmm2, zmm28-30
 
-    why row case only consider 1 2 3 4 5 6 12? because this is easier for vzeroall clean cases
-
 --*/
 // no need following line since in SgemmKernelAvx512F.S it is included above this file
 // #include "FgemmKernelAvx512FCommon.h"
 
-        .equ    .LFgemmKernelFrame_Bias, 56
-        .equ    .LFgemmKernelFrame_R8, 64
+        #.equ    .LFgemmKernelFrame_Bias, 56
+        #.equ    .LFgemmKernelFrame_R8, 64
 
 /*++
 
@@ -71,97 +69,26 @@ Implicit Arguments:
 
 --*/
 
-        .macro ProcessCountMBias RowCount
+        .macro ProcessCountMHalfBias RowCount
 
         mov     .LFgemmKernelFrame_R8[rsp],r8 # rbp + 48
         mov     r8,.LFgemmKernelFrame_Bias[rsp] # rbp + 40
 
-        cmp     r9,.LFgemmZmmElementCount       # 16 elements, 512 bits
-        jbe     .LProcessRemainingCountNBias\@
-
-.LProcessNextColumnLoop2xNBias\@:
-        # 6 x 2, this is because vzeroall not affecting zmm16 above
-        EmitIfCountGE \RowCount\(), 12, "vmovapf zmm16,zmm4"
-                                            # clear upper block accumulators
+.LProcessAtMost16HalfBias\@:
+        # clean for the first column that is not affected by vzeroall, zmm5 assumed to be cleaned
         EmitIfCountGE \RowCount\(), 12, "vmovapf zmm17,zmm5"
-        EmitIfCountGE \RowCount\(), 12, "vmovapf zmm18,zmm4"
+                                            # clear upper block accumulators
         EmitIfCountGE \RowCount\(), 12, "vmovapf zmm19,zmm5"
-        EmitIfCountGE \RowCount\(), 12, "vmovapf zmm20,zmm4"
         EmitIfCountGE \RowCount\(), 12, "vmovapf zmm21,zmm5"
-        EmitIfCountGE \RowCount\(), 12, "vmovapf zmm22,zmm4"
         EmitIfCountGE \RowCount\(), 12, "vmovapf zmm23,zmm5"
-        EmitIfCountGE \RowCount\(), 12, "vmovapf zmm24,zmm4"
         EmitIfCountGE \RowCount\(), 12, "vmovapf zmm25,zmm5"
-        EmitIfCountGE \RowCount\(), 12, "vmovapf zmm26,zmm4"
         EmitIfCountGE \RowCount\(), 12, "vmovapf zmm27,zmm5"
-        # ComputeBlockLoop is in Common.h
-        # assgining A(rdi, rbx, r13 and r14), B(rsi), # reload A and advance/store C is at the end of this 2 block column calculation
-        # we get 12 x 2 of C calculated at this time, and they are at zmm4~zmm27 waiting for alpha and bias
-        ComputeBlockAvx512FLoop ComputeBlockAvx512FBy2, \RowCount\()
-        add     rsi,r12                     # advance matrix B by 64*CountK bytes, since we handled one more column during above func
-        test    r15b,r15b                   # ZeroMode?
-        jnz     .LMultiplyAlpha2xNBlockBias\@
-        # aAB + C for 12 x 1 first column
-        # why bother use vfmadd231 when alpha is 1.0?
-        vmovapf zmm2,ZMMWORD PTR [r8]
-        EmitIfCountGE \RowCount\(), 1, "vfmadd213pf zmm4,zmm31,zmm2"       # orig: [rdx] C
-        EmitIfCountGE \RowCount\(), 2, "vfmadd213pf zmm6,zmm31,zmm2"       # orig: [rdx+rax] C + ldc
-        EmitIfCountGE \RowCount\(), 3, "vfmadd213pf zmm8,zmm31,zmm2"       # orig: [rdx+rax*2] C + 2ldc
-        EmitIfCountGE \RowCount\(), 4, "vfmadd213pf zmm10,zmm31,zmm2"      # orig: [rbx] C + 3ldc
-        EmitIfCountGE \RowCount\(), 5, "vfmadd213pf zmm12,zmm31,zmm2"
-        EmitIfCountGE \RowCount\(), 6, "vfmadd213pf zmm14,zmm31,zmm2"
-        EmitIfCountGE \RowCount\(), 12, "vfmadd213pf zmm16,zmm31,zmm2"
-        EmitIfCountGE \RowCount\(), 12, "vfmadd213pf zmm18,zmm31,zmm2"
-        EmitIfCountGE \RowCount\(), 12, "vfmadd213pf zmm20,zmm31,zmm2"
-        EmitIfCountGE \RowCount\(), 12, "vfmadd213pf zmm22,zmm31,zmm2"
-        EmitIfCountGE \RowCount\(), 12, "vfmadd213pf zmm24,zmm31,zmm2"
-        EmitIfCountGE \RowCount\(), 12, "vfmadd213pf zmm26,zmm31,zmm2"
-        add     r8,64
-        jmp     .LStore2xNBlockBias\@
+        ComputeBlockAvx512FLoop ComputeBlockAvx512FBy1, \RowCount\()
 
-# DEPRECATED: Zero mode, only need to multiply alpha, no bias
-.LMultiplyAlpha2xNBlockBias\@:
-        EmitIfCountGE \RowCount\(), 1, "vmulpf zmm4,zmm4,zmm31"
-        EmitIfCountGE \RowCount\(), 2, "vmulpf zmm6,zmm6,zmm31"
-        EmitIfCountGE \RowCount\(), 3, "vmulpf zmm8,zmm8,zmm31"
-        EmitIfCountGE \RowCount\(), 4, "vmulpf zmm10,zmm10,zmm31"
-        EmitIfCountGE \RowCount\(), 5, "vmulpf zmm12,zmm12,zmm31"
-        EmitIfCountGE \RowCount\(), 6, "vmulpf zmm14,zmm14,zmm31"
-        EmitIfCountGE \RowCount\(), 12, "vmulpf zmm16,zmm16,zmm31"
-        EmitIfCountGE \RowCount\(), 12, "vmulpf zmm18,zmm18,zmm31"
-        EmitIfCountGE \RowCount\(), 12, "vmulpf zmm20,zmm20,zmm31"
-        EmitIfCountGE \RowCount\(), 12, "vmulpf zmm22,zmm22,zmm31"
-        EmitIfCountGE \RowCount\(), 12, "vmulpf zmm24,zmm24,zmm31"
-        EmitIfCountGE \RowCount\(), 12, "vmulpf zmm26,zmm26,zmm31"
-
-# destination might be unaligned
-.LStore2xNBlockBias\@:
-        EmitIfCountGE \RowCount\(), 1, "vmovupf ZMMWORD PTR [rdx],zmm4"
-        EmitIfCountGE \RowCount\(), 2, "vmovupf ZMMWORD PTR [rdx+rax],zmm6"
-        EmitIfCountGE \RowCount\(), 3, "vmovupf ZMMWORD PTR [rdx+rax*2],zmm8"
-        EmitIfCountGE \RowCount\(), 4, "vmovupf ZMMWORD PTR [rbx],zmm10"
-        EmitIfCountGE \RowCount\(), 5, "vmovupf ZMMWORD PTR [rbx+rax],zmm12"
-        EmitIfCountGE \RowCount\(), 6, "vmovupf ZMMWORD PTR [rbx+rax*2],zmm14"
-        EmitIfCountGE \RowCount\(), 12, "vmovupf ZMMWORD PTR [r13],zmm16"
-        EmitIfCountGE \RowCount\(), 12, "vmovupf ZMMWORD PTR [r13+rax],zmm18"
-        EmitIfCountGE \RowCount\(), 12, "vmovupf ZMMWORD PTR [r13+rax*2],zmm20"
-        EmitIfCountGE \RowCount\(), 12, "vmovupf ZMMWORD PTR [r14],zmm22"
-        EmitIfCountGE \RowCount\(), 12, "vmovupf ZMMWORD PTR [r14+rax],zmm24"
-        EmitIfCountGE \RowCount\(), 12, "vmovupf ZMMWORD PTR [r14+rax*2],zmm26"
-        add     rdx,64                      # advance matrix C by ZMMWORD
-.if \RowCount\() > 3
-        add     rbx,64                      # advance matrix C plus 3 rows by ZMMWORD
-.if \RowCount\() == 12
-        add     r13,64                      # advance matrix C plus 6 rows by ZMMWORD
-        add     r14,64                      # advance matrix C plus 9 rows by ZMMWORD
-.endif
-.endif
+.LPrepare1xNBlockHalfBias\@:
         sub     r9,.LFgemmZmmElementCount   # CountN -= 16
-
-.LOutput1xNBlockBias\@:
-        sub     r9,.LFgemmZmmElementCount   # CountN -= 16
-        jae     .LOutput1xNBlockWithMaskBias\@
-        # mask preparation for k1
+        jae     .LOutput1xNBlockHalfBias\@
+        # mask preparation for k1, if >=16, k1 is already 0xFFFF
         lea     rcx,[r9+.LFgemmZmmElementCount]
                                             # correct for over-subtract above
         mov     ebp,1
@@ -169,10 +96,29 @@ Implicit Arguments:
         dec     ebp
         kmovw   k1,ebp                      # update mask for remaining columns
         xor     r9,r9                       # no more columns remaining
+        jmp     .LOutput1xNBlockWithMaskHalfBias\@
 
-.LOutput1xNBlockWithMaskBias\@:
+.LOutput1xNBlockHalfBias\@:
         test    r15b,r15b                   # ZeroMode?
-        jnz     .LMultiplyAlpha1xNBlockWithMaskBias\@
+        jnz     .LMultiplyAlpha1xNBlockWithMaskHalfBias\@
+        vmovapf zmm2,ZMMWORD PTR [r8]
+        EmitIfCountGE \RowCount\(), 1, "vfmadd213pf zmm5,zmm31,zmm2"
+        EmitIfCountGE \RowCount\(), 2, "vfmadd213pf zmm7,zmm31,zmm2"
+        EmitIfCountGE \RowCount\(), 3, "vfmadd213pf zmm9,zmm31,zmm2"
+        EmitIfCountGE \RowCount\(), 4, "vfmadd213pf zmm11,zmm31,zmm2"
+        EmitIfCountGE \RowCount\(), 5, "vfmadd213pf zmm13,zmm31,zmm2"
+        EmitIfCountGE \RowCount\(), 6, "vfmadd213pf zmm15,zmm31,zmm2"
+        EmitIfCountGE \RowCount\(), 12, "vfmadd213pf zmm17,zmm31,zmm2"
+        EmitIfCountGE \RowCount\(), 12, "vfmadd213pf zmm19,zmm31,zmm2"
+        EmitIfCountGE \RowCount\(), 12, "vfmadd213pf zmm21,zmm31,zmm2"
+        EmitIfCountGE \RowCount\(), 12, "vfmadd213pf zmm23,zmm31,zmm2"
+        EmitIfCountGE \RowCount\(), 12, "vfmadd213pf zmm25,zmm31,zmm2"
+        EmitIfCountGE \RowCount\(), 12, "vfmadd213pf zmm27,zmm31,zmm2"
+        jmp     .LStore1xNBlockHalfBias\@
+
+.LOutput1xNBlockWithMaskHalfBias\@:
+        test    r15b,r15b                   # ZeroMode?
+        jnz     .LMultiplyAlpha1xNBlockWithMaskHalfBias\@
         vmovapf zmm2,ZMMWORD PTR [r8]
         EmitIfCountGE \RowCount\(), 1, "vfmadd213pf zmm5{k1},zmm31,zmm2"
         EmitIfCountGE \RowCount\(), 2, "vfmadd213pf zmm7{k1},zmm31,zmm2"
@@ -186,11 +132,10 @@ Implicit Arguments:
         EmitIfCountGE \RowCount\(), 12, "vfmadd213pf zmm23{k1},zmm31,zmm2"
         EmitIfCountGE \RowCount\(), 12, "vfmadd213pf zmm25{k1},zmm31,zmm2"
         EmitIfCountGE \RowCount\(), 12, "vfmadd213pf zmm27{k1},zmm31,zmm2"
-        add     r8,64
-        jmp     .LStore1xNBlockWithMaskBias\@
+        jmp     .LStore1xNBlockWithMaskHalfBias\@
 
 # DEPRECATED: zero mode
-.LMultiplyAlpha1xNBlockWithMaskBias\@:
+.LMultiplyAlpha1xNBlockWithMaskHalfBias\@:
         EmitIfCountGE \RowCount\(), 1, "vmulpf zmm5,zmm5,zmm31"
         EmitIfCountGE \RowCount\(), 2, "vmulpf zmm7,zmm7,zmm31"
         EmitIfCountGE \RowCount\(), 3, "vmulpf zmm9,zmm9,zmm31"
@@ -203,8 +148,24 @@ Implicit Arguments:
         EmitIfCountGE \RowCount\(), 12, "vmulpf zmm23,zmm23,zmm31"
         EmitIfCountGE \RowCount\(), 12, "vmulpf zmm25,zmm25,zmm31"
         EmitIfCountGE \RowCount\(), 12, "vmulpf zmm27,zmm27,zmm31"
+        jmp .LStore1xNBlockWithMaskHalfBias\@
 
-.LStore1xNBlockWithMaskBias\@:
+.LStore1xNBlockHalfBias\@:
+        EmitIfCountGE \RowCount\(), 1, "vmovupf ZMMWORD PTR [rdx],zmm5"
+        EmitIfCountGE \RowCount\(), 2, "vmovupf ZMMWORD PTR [rdx+rax],zmm7"
+        EmitIfCountGE \RowCount\(), 3, "vmovupf ZMMWORD PTR [rdx+rax*2],zmm9"
+        EmitIfCountGE \RowCount\(), 4, "vmovupf ZMMWORD PTR [rbx],zmm11"
+        EmitIfCountGE \RowCount\(), 5, "vmovupf ZMMWORD PTR [rbx+rax],zmm13"
+        EmitIfCountGE \RowCount\(), 6, "vmovupf ZMMWORD PTR [rbx+rax*2],zmm15"
+        EmitIfCountGE \RowCount\(), 12, "vmovupf ZMMWORD PTR [r13],zmm17"
+        EmitIfCountGE \RowCount\(), 12, "vmovupf ZMMWORD PTR [r13+rax],zmm19"
+        EmitIfCountGE \RowCount\(), 12, "vmovupf ZMMWORD PTR [r13+rax*2],zmm21"
+        EmitIfCountGE \RowCount\(), 12, "vmovupf ZMMWORD PTR [r14],zmm23"
+        EmitIfCountGE \RowCount\(), 12, "vmovupf ZMMWORD PTR [r14+rax],zmm25"
+        EmitIfCountGE \RowCount\(), 12, "vmovupf ZMMWORD PTR [r14+rax*2],zmm27"
+        jmp .LProceedNextHalfBias\@
+
+.LStore1xNBlockWithMaskHalfBias\@:
         EmitIfCountGE \RowCount\(), 1, "vmovupf ZMMWORD PTR [rdx]{k1},zmm5"
         EmitIfCountGE \RowCount\(), 2, "vmovupf ZMMWORD PTR [rdx+rax]{k1},zmm7"
         EmitIfCountGE \RowCount\(), 3, "vmovupf ZMMWORD PTR [rdx+rax*2]{k1},zmm9"
@@ -217,26 +178,18 @@ Implicit Arguments:
         EmitIfCountGE \RowCount\(), 12, "vmovupf ZMMWORD PTR [r14]{k1},zmm23"
         EmitIfCountGE \RowCount\(), 12, "vmovupf ZMMWORD PTR [r14+rax]{k1},zmm25"
         EmitIfCountGE \RowCount\(), 12, "vmovupf ZMMWORD PTR [r14+rax*2]{k1},zmm27"
+
+.LProceedNextHalfBias\@:
         add     rdx,64                      # advance matrix C by ZMMWORD
-        mov     rdi,r11                     # reload matrix A
+        add     r8,64                       # advance Bias
+        mov     rdi,r11                     # reload matrix A, B is advanced already inside ComputeBlockLoop
         vzeroall
-        cmp     r9,.LFgemmZmmElementCount   # whether remaining columns(CountN) is greater than 16
-        ja      .LProcessNextColumnLoop2xNBias\@
+
         test    r9,r9 # if no more columns(CountN) just exit
 
-        jz      .LExitKernelBias
+        jnz     .LProcessAtMost16HalfBias\@
+        jz      .LExitKernelHalfBias
 
-.LProcessRemainingCountNBias\@:
-        # just care for the first column
-        EmitIfCountGE \RowCount\(), 12, "vmovapf zmm17,zmm5"
-                                            # clear upper block accumulators
-        EmitIfCountGE \RowCount\(), 12, "vmovapf zmm19,zmm5"
-        EmitIfCountGE \RowCount\(), 12, "vmovapf zmm21,zmm5"
-        EmitIfCountGE \RowCount\(), 12, "vmovapf zmm23,zmm5"
-        EmitIfCountGE \RowCount\(), 12, "vmovapf zmm25,zmm5"
-        EmitIfCountGE \RowCount\(), 12, "vmovapf zmm27,zmm5"
-        ComputeBlockAvx512FLoop ComputeBlockAvx512FBy1, \RowCount\()
-        jmp     .LOutput1xNBlockBias\@
 
         .endm
 
@@ -252,7 +205,7 @@ Arguments:
 
 --*/
 
-        .macro FgemmKernelBiasAvx512FFunction FunctionName
+        .macro FgemmKernelHalfBiasAvx512FFunction FunctionName
 
 /*++
 
@@ -323,35 +276,35 @@ Return Value:
 //
 
         cmp     r8,12                       # CountM
-        jb      .LProcessCountMLessThan12Bias
+        jb      .LProcessCountMLessThan12HalfBias
         mov     r8d,12                      # r8d 32 bits will go to eax, return 12 rows handled
-        ProcessCountMBias 12
+        ProcessCountMHalfBias 12
 
-.LProcessCountMLessThan12Bias:
+.LProcessCountMLessThan12HalfBias:
         cmp     r8,5
-        ja      .LProcessCountM6Bias
-        je      .LProcessCountM5Bias
+        ja      .LProcessCountM6HalfBias
+        je      .LProcessCountM5HalfBias
         cmp     r8,3
-        ja      .LProcessCountM4Bias
-        je      .LProcessCountM3Bias
+        ja      .LProcessCountM4HalfBias
+        je      .LProcessCountM3HalfBias
         cmp     r8,1
-        je      .LProcessCountM1Bias
+        je      .LProcessCountM1HalfBias
 
-.LProcessCountM2Bias:
-        ProcessCountMBias 2
+.LProcessCountM2HalfBias:
+        ProcessCountMHalfBias 2
 
-.LProcessCountM4Bias:
-        ProcessCountMBias 4
+.LProcessCountM4HalfBias:
+        ProcessCountMHalfBias 4
 
-.LProcessCountM6Bias:
+.LProcessCountM6HalfBias:
         mov     r8d,6                       # return 6 rows handled
-        ProcessCountMBias 6
+        ProcessCountMHalfBias 6
 
 //
 // Restore non-volatile registers and return.
 //
 
-.LExitKernelBias:
+.LExitKernelHalfBias:
         mov     r8,.LFgemmKernelFrame_R8[rsp]# rbp + 48
         mov     eax,r8d # return value
         mov     r12,.LFgemmKernelFrame_SavedR12[rsp] # restore r12
@@ -362,13 +315,13 @@ Return Value:
         pop     rbp     # restore rbp, and rsp by 8, rsp is restored at this point
         ret
 
-.LProcessCountM1Bias:
-        ProcessCountMBias 1
+.LProcessCountM1HalfBias:
+        ProcessCountMHalfBias 1
 
-.LProcessCountM3Bias:
-        ProcessCountMBias 3
+.LProcessCountM3HalfBias:
+        ProcessCountMHalfBias 3
 
-.LProcessCountM5Bias:
-        ProcessCountMBias 5
+.LProcessCountM5HalfBias:
+        ProcessCountMHalfBias 5
 
         .endm

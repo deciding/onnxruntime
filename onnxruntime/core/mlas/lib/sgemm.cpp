@@ -1015,8 +1015,7 @@ MlasSgemmKernelLoop(
     size_t lda,
     size_t ldc,
     float alpha,
-    bool ZeroMode,
-    const float* Bias = nullptr
+    bool ZeroMode
     )
 /*++
 
@@ -1063,10 +1062,7 @@ Return Value:
         size_t RowsHandled;
 
 #if defined(MLAS_TARGET_AMD64_IX86)
-        if(Bias)
-            RowsHandled = MlasPlatform.GemmFloatKernelBias(A, B, C, CountK, CountM, CountN, lda, ldc, alpha, ZeroMode, Bias);
-        else
-            RowsHandled = MlasPlatform.GemmFloatKernel(A, B, C, CountK, CountM, CountN, lda, ldc, alpha, ZeroMode);
+        RowsHandled = MlasPlatform.GemmFloatKernel(A, B, C, CountK, CountM, CountN, lda, ldc, alpha, ZeroMode);
 #elif defined(MLAS_TARGET_POWER)
         RowsHandled = MlasSgemmKernel(A, B, C, CountK, CountM, CountN, lda, ldc, alpha, ZeroMode);
 #else
@@ -1338,8 +1334,7 @@ MlasSgemmPackedOperation(
     size_t AlignedN,
     float beta,
     float* C,
-    size_t ldc,
-    const float* Bias = nullptr
+    size_t ldc
     )
 /*++
 
@@ -1425,16 +1420,9 @@ Return Value:
             const float* pb = (const float*)PackedB + AlignedN * k + CountK * SliceStartN;
             float* c = C + n;
 
-            if(k==0 && Bias){
-                ZeroMode = false;
-            }
-            else{
-                Bias = nullptr; // otherwise will activate the Bias version of Gemm, even though ZeroMode is false
-            }
-
             if (TransA == CblasNoTrans) {
 
-                MlasSgemmKernelLoop(A + k, pb, c, CountK, M, CountN, lda, ldc, alpha, ZeroMode, Bias);
+                MlasSgemmKernelLoop(A + k, pb, c, CountK, M, CountN, lda, ldc, alpha, ZeroMode);
 
             } else {
 
@@ -1458,7 +1446,7 @@ Return Value:
                     // Step through the rows of the local buffer.
                     //
 
-                    c = MlasSgemmKernelLoop(PanelA, pb, c, CountK, RowsTransposed, CountN, CountK, ldc, alpha, ZeroMode, Bias);
+                    c = MlasSgemmKernelLoop(PanelA, pb, c, CountK, RowsTransposed, CountN, CountK, ldc, alpha, ZeroMode);
                 }
             }
 
@@ -1549,15 +1537,12 @@ Return Value:
 
     const float* A = DataParams->A + RangeStartM * ((TransA == CblasNoTrans) ? lda : 1);
     float* C = DataParams->C + RangeStartM * ldc + RangeStartN;
-    const float* Bias = nullptr;
-    if(DataParams->Bias)
-        Bias = DataParams->Bias + RangeStartN;
 
     if (DataParams->BIsPacked) {
 
         MlasSgemmPackedOperation(TransA, RangeCountM, RangeStartN, RangeCountN,
             K, DataParams->alpha, A, lda, DataParams->B,
-            BlockedN * MLAS_SGEMM_STRIDEN_THREAD_ALIGN, DataParams->beta, C, ldc, Bias);
+            BlockedN * MLAS_SGEMM_STRIDEN_THREAD_ALIGN, DataParams->beta, C, ldc);
 
     } else {
 
@@ -1650,7 +1635,6 @@ MlasGemmBatch(
 }
 
 /*----------------*/
-
 MLAS_FORCEINLINE
 float*
 MlasSgemmKernelLoopKN(
@@ -1664,7 +1648,8 @@ MlasSgemmKernelLoopKN(
     size_t ldc,
     float alpha,
     bool ZeroMode,
-    const float* Bias = nullptr
+    const float* Bias = nullptr,
+    const float* AddMat = nullptr
     )
 {
     while (CountM > 0) {
@@ -1672,10 +1657,7 @@ MlasSgemmKernelLoopKN(
         size_t RowsHandled;
 
 #if defined(MLAS_TARGET_AMD64_IX86)
-        if(Bias)
-            RowsHandled = MlasPlatform.GemmFloatKernelBiasPost(A, B, C, CountK, CountM, CountN, lda, ldc, alpha, ZeroMode, Bias);
-        else
-            RowsHandled = MlasPlatform.GemmFloatKernel(A, B, C, CountK, CountM, CountN, lda, ldc, alpha, ZeroMode);
+        RowsHandled = MlasPlatform.GemmFloatKernelBiasMat(A, B, C, CountK, CountM, CountN, lda, ldc, alpha, ZeroMode, Bias, AddMat);
 #elif defined(MLAS_TARGET_POWER)
         RowsHandled = MlasSgemmKernel(A, B, C, CountK, CountM, CountN, lda, ldc, alpha, ZeroMode);
 #else
@@ -1689,6 +1671,7 @@ MlasSgemmKernelLoopKN(
         C += ldc * RowsHandled;
         A += lda * RowsHandled;
         CountM -= RowsHandled;
+        if(AddMat) AddMat += ldc * RowsHandled;
     }
 
     return C;
@@ -1712,7 +1695,8 @@ MlasSgemmPackedOperationKN(
     size_t StrideK,
     size_t StrideN,
 
-    const float* Bias = nullptr
+    const float* Bias = nullptr,
+    const float* AddMat = nullptr
     )
 {
     float PanelA[MLAS_SGEMM_TRANSA_ROWS * StrideK];
@@ -1744,6 +1728,9 @@ MlasSgemmPackedOperationKN(
         size_t CountK;
         bool ZeroMode = (beta == 0.0f);
 
+        const float* bias;
+        const float* addmat;
+
         for (size_t k = 0; k < K; k += CountK) {
 
             CountK = std::min(K - k, size_t(StrideK));
@@ -1755,17 +1742,25 @@ MlasSgemmPackedOperationKN(
             const float* pb = (const float*)PackedB + AlignedN * k + CountK * SliceStartN;
             float* c = C + n;
 
-            // new version not expecting Bias to change zero mode
-            // if(k==0 && Bias){
-            //     ZeroMode = false;
-            // }
-            // else{
-            //     Bias = nullptr; // otherwise will activate the Bias version of Gemm, even though ZeroMode is false
-            // }
+            // TODO: new version not expecting Bias to change zero mode
+            if(k==0 && Bias){
+                ZeroMode = false;
+                bias = Bias;
+            }
+            else{
+                bias = nullptr; // otherwise will activate the Bias version of Gemm, even though ZeroMode is false
+            }
+            if(k==0 && AddMat){
+                ZeroMode = false;
+                addmat = AddMat;
+            }
+            else{
+                addmat = nullptr;
+            }
 
             if (TransA == CblasNoTrans) {
 
-                MlasSgemmKernelLoopKN(A + k, pb, c, CountK, M, CountN, lda, ldc, alpha, ZeroMode, Bias);
+                MlasSgemmKernelLoopKN(A + k, pb, c, CountK, M, CountN, lda, ldc, alpha, ZeroMode, bias, addmat);
 
             } else {
 
@@ -1789,14 +1784,140 @@ MlasSgemmPackedOperationKN(
                     // Step through the rows of the local buffer.
                     //
 
-                    c = MlasSgemmKernelLoopKN(PanelA, pb, c, CountK, RowsTransposed, CountN, CountK, ldc, alpha, ZeroMode, Bias);
+                    c = MlasSgemmKernelLoopKN(PanelA, pb, c, CountK, RowsTransposed, CountN, CountK, ldc, alpha, ZeroMode, bias, addmat);
                 }
             }
 
             ZeroMode = false;
         }
+        if(Bias) Bias += CountN;
+        if(AddMat) AddMat += CountN;
     }
 }
+
+void
+MlasSgemmOperationKN(
+    CBLAS_TRANSPOSE TransA,
+    CBLAS_TRANSPOSE TransB,
+    size_t M,
+    size_t N,
+    size_t K,
+    float alpha,
+    const float* A,
+    size_t lda,
+    const float* B,
+    size_t ldb,
+    float beta,
+    float* C,
+    size_t ldc,
+    size_t StrideK,
+    size_t StrideN,
+
+    const float* Bias = nullptr,
+    const float* AddMat = nullptr
+    )
+{
+    float PanelA[MLAS_SGEMM_TRANSA_ROWS * StrideK];
+    MLAS_DECLSPEC_ALIGN(float PanelB[StrideN * StrideK], 16 * sizeof(float));
+
+    if (K == 0) {
+        MlasSgemmMultiplyBeta(C, M, N, ldc, beta);
+        return;
+    }
+
+    // TODO: special cases
+    //
+    // Handle the special case of a small M. The data from matrix B is not
+    // referenced multiple times, so using a local packed buffer is a wasted
+    // memory copy.
+    //
+    if (M == 1 && TransA == CblasNoTrans && alpha == 1.0f && (beta == 0.0f || beta == 1.0f)) {
+        return;
+    }
+    //
+    // Handle the case when both B and C are column-vectors that are contiguous in memory.
+    // Because transposition of such vectors doesn't change their layout, and
+    // Transpose(A*B) = Transpose(B) * Transpose(A), we can apply the same 'small-M'
+    // optimization as above, with A and B flipped.
+    //
+
+    if (N == 1 && ldb == 1 && ldc == 1 && alpha == 1.0f && (beta == 0.0f || beta == 1.0f)) {
+        return;
+    }
+
+    size_t CountN;
+
+    for (size_t n = 0; n < N; n += CountN) {
+
+        CountN = std::min(N - n, StrideN);
+
+        if (beta != 0.0f && beta != 1.0f) {
+            MlasSgemmMultiplyBeta(C + n, M, CountN, ldc, beta);
+        }
+
+        size_t CountK;
+        bool ZeroMode = (beta == 0.0f);
+
+        const float* bias;
+        const float* addmat;
+
+        for (size_t k = 0; k < K; k += CountK) {
+
+            CountK = std::min(K - k, StrideK);
+
+            // one piece of pack to PanelB
+            if (TransB == CblasNoTrans) {
+                MlasSgemmCopyPackB(PanelB, B + n + k * ldb, ldb, CountN, CountK);
+            } else {
+                MlasSgemmTransposePackB(PanelB, B + k + n * ldb, ldb, CountN, CountK);
+            }
+
+            float* c = C + n;
+
+            if(k==0 && Bias){
+                ZeroMode = false;
+                bias = Bias;
+            }
+            else{
+                bias = nullptr; // otherwise will activate the Bias version of Gemm, even though ZeroMode is false
+            }
+            if(k==0 && AddMat){
+                ZeroMode = false;
+                addmat = AddMat;
+            }
+            else{
+                addmat = nullptr; // otherwise will activate the Bias version of Gemm, even though ZeroMode is false
+            }
+            
+            if (TransA == CblasNoTrans) {
+
+                MlasSgemmKernelLoopKN(A + k, PanelB, c, CountK, M, CountN, lda, ldc, alpha, ZeroMode, bias, addmat);
+
+            } else {
+
+                const float* a = A + k * lda;
+                size_t RowsRemaining = M;
+
+                while (RowsRemaining > 0) {
+
+                    // one piece of transposed A to PanelA
+                    size_t RowsTransposed = std::min(RowsRemaining, size_t(MLAS_SGEMM_TRANSA_ROWS));
+                    MlasSgemmTransposeA(PanelA, a, lda, RowsTransposed, CountK);
+
+                    RowsRemaining -= RowsTransposed;
+                    a += RowsTransposed;
+
+                    c = MlasSgemmKernelLoopKN(PanelA, PanelB, c, CountK, RowsTransposed, CountN, CountK, ldc, alpha, ZeroMode, bias, addmat);
+                }
+            }
+
+            ZeroMode = false;
+        }
+        if(Bias) Bias += CountN;
+        if(AddMat) AddMat += CountN;
+    }
+}
+
 
 void
 MlasSgemmThreadedKN(
@@ -1854,15 +1975,17 @@ MlasSgemmThreadedKN(
 
     const float* A = DataParams->A + RangeStartM * ((TransA == CblasNoTrans) ? lda : 1);
     float* C = DataParams->C + RangeStartM * ldc + RangeStartN;
-    const float* Bias = nullptr;
+    const float* Bias = nullptr, *AddMat = nullptr;
     if(DataParams->Bias)
         Bias = DataParams->Bias + RangeStartN;
+    if(DataParams->Mat)
+        AddMat = DataParams->Mat + RangeStartM * ldc + RangeStartN;
 
     if (DataParams->BIsPacked) {
 
         MlasSgemmPackedOperationKN(TransA, RangeCountM, RangeStartN, RangeCountN,
             K, DataParams->alpha, A, lda, DataParams->B,
-            BlockedN * MLAS_SGEMM_STRIDEN_THREAD_ALIGN, DataParams->beta, C, ldc, StrideK, StrideN, Bias);
+            BlockedN * MLAS_SGEMM_STRIDEN_THREAD_ALIGN, DataParams->beta, C, ldc, StrideK, StrideN, Bias, AddMat);
 
     } else {
 
@@ -1870,8 +1993,8 @@ MlasSgemmThreadedKN(
 
         const float* B = (const float*)DataParams->B + RangeStartN * ((TransB == CblasNoTrans) ? 1 : ldb);
 
-        MlasSgemmOperation(TransA, TransB, RangeCountM, RangeCountN, K,
-            DataParams->alpha, A, lda, B, ldb, DataParams->beta, C, ldc);
+        MlasSgemmOperationKN(TransA, TransB, RangeCountM, RangeCountN, K,
+            DataParams->alpha, A, lda, B, ldb, DataParams->beta, C, ldc, StrideK, StrideN, Bias, AddMat);
     }
 }
 

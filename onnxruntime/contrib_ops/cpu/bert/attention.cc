@@ -302,12 +302,12 @@ Status Attention<T>::Compute(OpKernelContext* context) const {
       for (std::ptrdiff_t i = begin; i != end; ++i) {
         const int batch_index = static_cast<int>((i / 3) / num_heads_);
         const int head_index = static_cast<int>((i / 3) % num_heads_);
-        const int qkv_index = static_cast<int>(i % 3);
+        const int qkv_index = static_cast<int>(i % 3); // 041
 
         int input_offset = batch_index * sequence_length * input_hidden_size;
         int weights_offset = qkv_index * hidden_size + head_index * head_size;
         T* qkv_dest = QKV[qkv_index];
-        int qkv_offset = (batch_index * num_heads_ + head_index) * (sequence_length * head_size);
+        int qkv_offset = (batch_index * num_heads_ + head_index) * (sequence_length * head_size); // 0 1024 32768
 
         // TODO!! memcpy here makes it not worthwhile to use Gemm batch. Possible to post process?
         // broadcast 3NH -> (3.B.N.S.H)
@@ -317,7 +317,7 @@ Status Attention<T>::Compute(OpKernelContext* context) const {
           memcpy(broadcast_data_dest, broadcast_data_src, head_size * sizeof(T));
           broadcast_data_dest += head_size;
         }
-
+        // 128 64 768, 0, 0.10000001, 768, 0.000778210117 196608, 0.00011189028 32768, 64
         //                   original           transposed            iteration
         // A: input          (BxSxD)            (B.)S x D             S x D
         // B: weights        (Dx3xNxH)          D x (3.N.)H           D x H

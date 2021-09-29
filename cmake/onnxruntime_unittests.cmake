@@ -14,6 +14,140 @@ if (onnxruntime_USE_TVM)
 endif()
 
 set(disabled_warnings)
+function(MyAddTest)
+  cmake_parse_arguments(_UT "DYN" "TARGET" "LIBS;SOURCES;DEPENDS" ${ARGN})
+  list(REMOVE_DUPLICATES _UT_SOURCES)
+
+  if (${CMAKE_SYSTEM_NAME} STREQUAL "iOS")
+    onnxruntime_add_executable(${_UT_TARGET} ${TEST_SRC_DIR}/xctest/orttestmain.m)
+  else()
+    onnxruntime_add_shared_library_module(${_UT_TARGET} ${_UT_SOURCES})
+  endif()
+
+  if (_UT_DEPENDS)
+    list(REMOVE_DUPLICATES _UT_DEPENDS)
+  endif(_UT_DEPENDS)
+
+  if(_UT_LIBS)
+    list(REMOVE_DUPLICATES _UT_LIBS)
+  endif()
+
+  source_group(TREE ${REPO_ROOT} FILES ${_UT_SOURCES})
+
+  if (MSVC AND NOT CMAKE_SIZEOF_VOID_P EQUAL 8)
+    #TODO: fix the warnings, they are dangerous
+    target_compile_options(${_UT_TARGET} PRIVATE "/wd4244")
+  endif()
+  if (MSVC)
+    target_compile_options(${_UT_TARGET} PRIVATE "/wd6330")
+  endif()
+  set_target_properties(${_UT_TARGET} PROPERTIES FOLDER "ONNXRuntimeTest")
+
+  if (_UT_DEPENDS)
+    add_dependencies(${_UT_TARGET} ${_UT_DEPENDS})
+  endif(_UT_DEPENDS)
+  if(_UT_DYN)
+    target_link_libraries(${_UT_TARGET} PRIVATE ${_UT_LIBS} GTest::gtest GTest::gmock onnxruntime ${CMAKE_DL_LIBS}
+            Threads::Threads)
+    target_compile_definitions(${_UT_TARGET} PRIVATE -DUSE_ONNXRUNTIME_DLL)
+  else()
+    target_link_libraries(${_UT_TARGET} PRIVATE ${_UT_LIBS} GTest::gtest GTest::gmock ${onnxruntime_EXTERNAL_LIBRARIES})
+  endif()
+  onnxruntime_add_include_to_target(${_UT_TARGET} date_interface flatbuffers)
+  target_include_directories(${_UT_TARGET} PRIVATE ${TEST_INC_DIR})
+  if (onnxruntime_USE_CUDA)
+    target_include_directories(${_UT_TARGET} PRIVATE ${CMAKE_CUDA_TOOLKIT_INCLUDE_DIRECTORIES} ${onnxruntime_CUDNN_HOME}/include)
+    if (onnxruntime_USE_NCCL)
+      target_include_directories(${_UT_TARGET} PRIVATE ${NCCL_INCLUDE_DIRS})
+    endif()
+  endif()
+  if(MSVC)
+    target_compile_options(${_UT_TARGET} PRIVATE "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:--compiler-options /utf-8>"
+            "$<$<NOT:$<COMPILE_LANGUAGE:CUDA>>:/utf-8>")
+  endif()
+  if (WIN32)
+    # include dbghelp in case tests throw an ORT exception, as that exception includes a stacktrace, which requires dbghelp.
+    target_link_libraries(${_UT_TARGET} PRIVATE debug dbghelp)
+
+    if (onnxruntime_USE_CUDA)
+      # disable a warning from the CUDA headers about unreferenced local functions
+      if (MSVC)
+        target_compile_options(${_UT_TARGET} PRIVATE "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler /wd4505>"
+                "$<$<NOT:$<COMPILE_LANGUAGE:CUDA>>:/wd4505>")
+      endif()
+    endif()
+    target_compile_options(${_UT_TARGET} PRIVATE ${disabled_warnings})
+  else()
+    target_compile_options(${_UT_TARGET} PRIVATE ${DISABLED_WARNINGS_FOR_TVM})
+    target_compile_options(${_UT_TARGET} PRIVATE "$<$<COMPILE_LANGUAGE:CUDA>:SHELL:-Xcompiler -Wno-error=sign-compare>"
+            "$<$<NOT:$<COMPILE_LANGUAGE:CUDA>>:-Wno-error=sign-compare>")
+    target_compile_options(${_UT_TARGET} PRIVATE "-Wno-error=uninitialized")
+  endif()
+
+  set(TEST_ARGS)
+  if (onnxruntime_GENERATE_TEST_REPORTS)
+    # generate a report file next to the test program
+    list(APPEND TEST_ARGS
+      "--gtest_output=xml:$<SHELL_PATH:$<TARGET_FILE:${_UT_TARGET}>.$<CONFIG>.results.xml>")
+  endif(onnxruntime_GENERATE_TEST_REPORTS)
+
+  if (${CMAKE_SYSTEM_NAME} STREQUAL "iOS")
+    # target_sources(${_UT_TARGET} PRIVATE ${TEST_SRC_DIR}/xctest/orttestmain.m)
+    set_target_properties(${_UT_TARGET} PROPERTIES FOLDER "ONNXRuntimeTest"
+      MACOSX_BUNDLE_BUNDLE_NAME ${_UT_TARGET}
+      MACOSX_BUNDLE_GUI_IDENTIFIER com.onnxruntime.utest.${_UT_TARGET}
+      MACOSX_BUNDLE_LONG_VERSION_STRING ${ORT_VERSION}
+      MACOSX_BUNDLE_BUNDLE_VERSION ${ORT_VERSION}
+      MACOSX_BUNDLE_SHORT_VERSION_STRING ${ORT_VERSION}
+      XCODE_ATTRIBUTE_CLANG_ENABLE_MODULES "YES"
+      XCODE_ATTRIBUTE_ENABLE_BITCODE "NO"
+      XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO")
+
+    xctest_add_bundle(${_UT_TARGET}_xc ${_UT_TARGET}
+      ${TEST_SRC_DIR}/xctest/ortxctest.m
+      ${TEST_SRC_DIR}/xctest/xcgtest.mm
+      ${_UT_SOURCES})
+
+    if(_UT_DYN)
+      target_link_libraries(${_UT_TARGET}_xc PRIVATE ${_UT_LIBS} GTest::gtest GTest::gmock onnxruntime ${CMAKE_DL_LIBS}
+              Threads::Threads)
+      target_compile_definitions(${_UT_TARGET}_xc PRIVATE USE_ONNXRUNTIME_DLL)
+    else()
+      target_link_libraries(${_UT_TARGET}_xc PRIVATE ${_UT_LIBS} GTest::gtest GTest::gmock ${onnxruntime_EXTERNAL_LIBRARIES})
+    endif()
+    onnxruntime_add_include_to_target(${_UT_TARGET}_xc date_interface flatbuffers)
+    target_include_directories(${_UT_TARGET}_xc PRIVATE ${TEST_INC_DIR})
+    get_target_property(${_UT_TARGET}_DEFS ${_UT_TARGET} COMPILE_DEFINITIONS)
+    target_compile_definitions(${_UT_TARGET}_xc PRIVATE ${_UT_TARGET}_DEFS)
+
+    set_target_properties(${_UT_TARGET}_xc PROPERTIES FOLDER "ONNXRuntimeXCTest"
+      MACOSX_BUNDLE_BUNDLE_NAME ${_UT_TARGET}_xc
+      MACOSX_BUNDLE_GUI_IDENTIFIER com.onnxruntime.utest.${_UT_TARGET}
+      MACOSX_BUNDLE_LONG_VERSION_STRING ${ORT_VERSION}
+      MACOSX_BUNDLE_BUNDLE_VERSION ${ORT_VERSION}
+      MACOSX_BUNDLE_SHORT_VERSION_STRING ${ORT_VERSION}
+      XCODE_ATTRIBUTE_ENABLE_BITCODE "NO")
+
+    xctest_add_test(xctest.${_UT_TARGET} ${_UT_TARGET}_xc)
+  else()
+    if (onnxruntime_ENABLE_WEBASSEMBLY_THREADS)
+      find_program(NODE_EXECUTABLE node required)
+      if (NOT NODE_EXECUTABLE)
+        message(FATAL_ERROR "Node is required for unit tests")
+      endif()
+      add_test(NAME ${_UT_TARGET}
+        COMMAND ${NODE_EXECUTABLE} --experimental-wasm-threads --experimental-wasm-bulk-memory ${_UT_TARGET}.js ${TEST_ARGS}
+        WORKING_DIRECTORY $<TARGET_FILE_DIR:${_UT_TARGET}>
+      )
+    else()
+      add_test(NAME ${_UT_TARGET}
+        COMMAND ${_UT_TARGET} ${TEST_ARGS}
+        WORKING_DIRECTORY $<TARGET_FILE_DIR:${_UT_TARGET}>
+      )
+    endif()
+  endif()
+endfunction(MyAddTest)
+
 function(AddTest)
   cmake_parse_arguments(_UT "DYN" "TARGET" "LIBS;SOURCES;DEPENDS" ${ARGN})
   list(REMOVE_DUPLICATES _UT_SOURCES)
@@ -641,6 +775,15 @@ if (onnxruntime_BUILD_WEBASSEMBLY)
     )
   endif()
 endif()
+
+MyAddTest(
+  TARGET onnxruntime_test_lib
+  SOURCES ${all_tests} ${onnxruntime_unittest_main_src}
+  LIBS
+    onnx_test_runner_common ${onnxruntime_test_providers_libs} ${onnxruntime_test_common_libs} re2::re2
+    onnx_test_data_proto nlohmann_json::nlohmann_json
+  DEPENDS ${all_dependencies}
+)
 
 AddTest(
   TARGET onnxruntime_test_all

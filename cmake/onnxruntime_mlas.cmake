@@ -290,6 +290,8 @@ else()
         ${ONNXRUNTIME_ROOT}/core/mlas/lib/x86_64/TransKernelAvx512F.S
         ${ONNXRUNTIME_ROOT}/core/mlas/lib/x86_64/ErfKernelAvx512.S
         ${ONNXRUNTIME_ROOT}/core/mlas/lib/x86_64/BiasGeluAvx512.S
+        ${ONNXRUNTIME_ROOT}/core/mlas/lib/x86_64/SkipLayerNormAvx512F.S
+        ${ONNXRUNTIME_ROOT}/core/mlas/lib/x86_64/SoftmaxStableKernelAvx.S
       )
 
       check_cxx_source_compiles("

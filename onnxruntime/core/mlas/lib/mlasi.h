@@ -178,12 +178,42 @@ size_t
     );
 
 typedef
+size_t
+(MLASCALL MLAS_GEMM_FLOAT_KERNEL_BIAS_MAT)(
+    const float* A,
+    const float* B,
+    float* C,
+    size_t CountK,
+    size_t CountM,
+    size_t CountN,
+    size_t lda,
+    size_t ldc,
+    float alpha,
+    bool ZeroMode,
+    const float* Bias,
+    const float* AddMat
+    );
+
+typedef
 void
 (MLASCALL MLAS_COMPUTE_BIAS_FLOAT_KERNEL)(
     const float* Input,
     float* Output,
     size_t N,
     const float* Bias
+    );
+
+typedef
+void
+(MLASCALL MLAS_COMPUTE_LAYER_NORM_FLOAT_KERNEL)(
+    const float* Input1,
+    const float* Input2,
+    const float* Bias1,
+    float Epsilon,
+    const float* gamma,
+    const float* beta,
+    float* Output,
+    int32_t N
     );
 
 
@@ -521,8 +551,12 @@ extern "C" {
     // NOTE: import from asm
     MLAS_GEMM_FLOAT_KERNEL_BIAS MlasGemmFloatKernelBiasAvx512F; // import
     MLAS_GEMM_FLOAT_KERNEL_BIAS MlasGemmFloatKernelBiasPostAvx512F; // import
+    MLAS_GEMM_FLOAT_KERNEL_BIAS MlasGemmFloatKernelHalfBiasAvx512F; // import
+    MLAS_GEMM_FLOAT_KERNEL_BIAS_MAT MlasGemmFloatKernelBiasMatAvx512F; // import
     MLAS_COMPUTE_UNARY_FLOAT_KERNEL MlasErfKernelAvx512; // import
     MLAS_COMPUTE_BIAS_FLOAT_KERNEL MlasBiasGeluAvx512; // import
+    MLAS_COMPUTE_LAYER_NORM_FLOAT_KERNEL MlasSkipLayerNormAvx512; // import
+    MLAS_COMPUTE_UNARY_FLOAT_KERNEL MlasSoftmaxStableAvx; // import
 
     MLAS_GEMM_DOUBLE_KERNEL MlasGemmDoubleKernelSse;
     MLAS_GEMM_DOUBLE_KERNEL MlasGemmDoubleKernelAvx;
@@ -741,8 +775,12 @@ struct MLAS_PLATFORM {
     // NOTE: define member, assign it to imported asm in platform.cpp
     MLAS_GEMM_FLOAT_KERNEL_BIAS* GemmFloatKernelBias;
     MLAS_GEMM_FLOAT_KERNEL_BIAS* GemmFloatKernelBiasPost;
+    MLAS_GEMM_FLOAT_KERNEL_BIAS* GemmFloatKernelHalfBias;
+    MLAS_GEMM_FLOAT_KERNEL_BIAS_MAT* GemmFloatKernelBiasMat;
     MLAS_COMPUTE_UNARY_FLOAT_KERNEL* ErfKernelRoutineAvx512;
     MLAS_COMPUTE_BIAS_FLOAT_KERNEL* BiasGeluKernelAvx512;
+    MLAS_COMPUTE_LAYER_NORM_FLOAT_KERNEL* SkipLayerNormAvx512;
+    MLAS_COMPUTE_UNARY_FLOAT_KERNEL* SoftmaxStableAvx;
 #endif
 
 #if defined(MLAS_TARGET_AMD64)
