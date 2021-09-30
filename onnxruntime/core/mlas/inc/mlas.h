@@ -559,7 +559,45 @@ MlasGemmBatchKN(
     MLAS_THREADPOOL* ThreadPool,
     size_t StrideK, size_t StrideN, ptrdiff_t T, bool ParallelM
     );
+
+void
+MLASCALL
+MlasGemmPackBKN(
+    CBLAS_TRANSPOSE TransB,
+    size_t N,
+    size_t K,
+    const float* B,
+    size_t ldb,
+    void* PackedB,
+    size_t StrideK
+    );
 /*=======*/
+
+// ------ My MLAS ------
+
+void
+MLASCALL
+MlasComputeLayerNorm(
+    const float* Input1,
+    const float* Input2,
+    const float* Bias1,
+    float Epsilon,
+    const float* gamma,
+    const float* beta,
+    float* Output,
+    int32_t N
+    );
+
+void
+MLASCALL
+MlasComputeGelu(
+    const float* Input,
+    float* Output,
+    size_t N,
+    const float* Bias
+    );
+
+// =================
 
 void
 MLASCALL

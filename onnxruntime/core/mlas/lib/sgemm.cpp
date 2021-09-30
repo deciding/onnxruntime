@@ -2079,8 +2079,72 @@ MlasGemmBatchKN(
     });
 }
 
+void
+MLASCALL
+MlasGemmPackBKN(
+    CBLAS_TRANSPOSE TransB,
+    size_t N,
+    size_t K,
+    const float* B,
+    size_t ldb,
+    void* PackedB,
+    size_t StrideK
+    )
+{
+    const size_t AlignedN =
+        (N + MLAS_SGEMM_STRIDEN_THREAD_ALIGN - 1) & ~(MLAS_SGEMM_STRIDEN_THREAD_ALIGN - 1);
+
+    //
+    // Step through each slice of matrix B along the K dimension.
+    //
+
+    size_t CountK;
+
+    for (size_t k = 0; k < K; k += CountK) {
+
+        CountK = std::min(K - k, StrideK);
+
+        if (TransB == CblasNoTrans) {
+            MlasSgemmCopyPackB((float*)PackedB, B + k * ldb, ldb, N, CountK);
+        } else {
+            MlasSgemmTransposePackB((float*)PackedB, B + k, ldb, N, CountK);
+        }
+
+        PackedB = (float*)PackedB + AlignedN * CountK;
+    }
+}
 
 /*----------------*/
+
+// ------------ My MLAS --------
+
+void
+MLASCALL
+MlasComputeLayerNorm(
+    const float* Input1,
+    const float* Input2,
+    const float* Bias1,
+    float Epsilon,
+    const float* gamma,
+    const float* beta,
+    float* Output,
+    int32_t N
+    ){
+    MlasPlatform.SkipLayerNormAvx512(Input1, Input2, Bias1, Epsilon, gamma, beta, Output, N);
+}
+
+void
+MLASCALL
+MlasComputeGelu(
+    const float* Input,
+    float* Output,
+    size_t N,
+    const float* Bias
+    ){
+    MlasPlatform.BiasGeluKernelAvx512(Input, Output, N, Bias);
+}
+
+// =========================
 
 size_t
 MLASCALL

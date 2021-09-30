@@ -100,7 +100,7 @@ Status MatMulBiasFusion::ApplyImpl(Graph& graph, bool& modified, int graph_level
     }
 
     // TODO: Originally I have shape check, but now just ignore it
-    // const auto& bias_shape = *gemm_input_defs.back()->Shape();
+    const auto& bias_shape = *gemm_input_defs.back()->Shape();
     // // no matter transpose or not, we only output M x N
     // // const auto& M = matmul_output.Shape()->dim()[-2];
     // const auto& N = matmul_output.Shape()->dim()[-1];
@@ -113,10 +113,11 @@ Status MatMulBiasFusion::ApplyImpl(Graph& graph, bool& modified, int graph_level
     // //               (bias_shape.dim_size() == 2 && dim_has_value_1(bias_shape.dim()[0]) && bias_shape.dim()[1] == N) ||
     // //               (bias_shape.dim_size() == 2 && bias_shape.dim()[0] == M &&
     // //                (dim_has_value_1(bias_shape.dim()[1]) || bias_shape.dim()[1] == N)));
-    // bool valid = ((bias_shape.dim_size() == 1 && bias_shape.dim()[0] == N));
-    // if (!valid) {
-    //   continue;
-    // }
+    //bool valid = (bias_shape.dim_size() == 1 && bias_shape.dim()[0] == N));
+    bool valid = bias_shape.dim_size() == 1;
+    if (!valid) {
+      continue;
+    }
 
     Node& gemm_node = graph.AddNode(graph.GenerateNodeName("matmul_bias"), // unique node name
                                     "MatMulBias", // op type

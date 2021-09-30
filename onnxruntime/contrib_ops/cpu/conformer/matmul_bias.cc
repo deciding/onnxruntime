@@ -82,7 +82,7 @@ Status MatMulBias<float>::PrePack(const Tensor& tensor, int input_idx, bool& is_
 
   // only pack Matrix B
   if (input_idx == 1) {
-    is_packed = GemmPackBFp32(Info(), tensor, trans_b_attr_, packed_b_, b_shape_);
+    is_packed = GemmPackBFp32KN(Info(), tensor, trans_b_attr_, packed_b_, b_shape_, 768);
   }
   return Status::OK();
 }
@@ -133,8 +133,10 @@ Status MatMulBias<float>::Compute(OpKernelContext* ctx) const {
     data[i].beta = 0.0f;
   }
   // change function
-  MlasGemmBatch(trans_a ? CblasTrans : CblasNoTrans, trans_b ? CblasTrans : CblasNoTrans,
-      M, N, K, data.data(), max_len, thread_pool);
+  //MlasGemmBatch(trans_a ? CblasTrans : CblasNoTrans, trans_b ? CblasTrans : CblasNoTrans,
+  //    M, N, K, data.data(), max_len, thread_pool);
+  MlasGemmBatchKN(trans_a ? CblasTrans : CblasNoTrans, trans_b ? CblasTrans : CblasNoTrans,
+      M, N, K, data.data(), max_len, thread_pool, 768, 128, concurrency::ThreadPool::DegreeOfParallelism(thread_pool), M>=N);
 
   //FILE *f = fopen("Ab.data", "wb");
   //fwrite(data[0].A, sizeof(float), M * K, f);

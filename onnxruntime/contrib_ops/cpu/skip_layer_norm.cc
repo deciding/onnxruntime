@@ -7,6 +7,8 @@
 #include "core/platform/threadpool.h"
 #include "skip_layer_norm.h"
 
+#include "core/mlas/inc/mlas.h"
+
 namespace onnxruntime {
 namespace contrib {
 
@@ -104,6 +106,7 @@ Status SkipLayerNorm<T>::Compute(OpKernelContext* p_ctx) const {
                                                  const T* p_skip = skip_data + task_idx * hidden_size;
                                                  T* p_output = output_data + task_idx * hidden_size;
 
+                                                 // OLD
                                                  T mean = 0;
                                                  T mean_square = 0;
 
@@ -127,7 +130,98 @@ Status SkipLayerNorm<T>::Compute(OpKernelContext* p_ctx) const {
                                                      p_output[h] = (p_output[h] - mean) / mean_square * gamma_data[h] + beta_data[h];
                                                    }
                                                  }
+                                                
                                                }, 0);
+
+  return Status::OK();
+}
+
+template<>
+Status SkipLayerNorm<float>::Compute(OpKernelContext* p_ctx) const {
+  const Tensor* input = p_ctx->Input<Tensor>(0);
+  const Tensor* skip = p_ctx->Input<Tensor>(1);
+  const Tensor* gamma = p_ctx->Input<Tensor>(2);
+  const Tensor* beta = p_ctx->Input<Tensor>(3);
+  const Tensor* bias = p_ctx->Input<Tensor>(4);
+  Tensor* output = p_ctx->Output(0, input->Shape());
+
+  const auto& input_dims = input->Shape().GetDims();
+  if (input_dims.size() != 3) {
+    return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
+                           "input is expected to have 3 dimensions, got ", input_dims.size());
+  }
+
+  if (input->Shape() != skip->Shape()) {
+    return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
+                           "skip is expected to have same shape as input");
+  }
+
+  const auto& gamma_dims = gamma->Shape().GetDims();
+  if (gamma_dims.size() != 1) {
+    return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
+                           "gamma is expected to have 1 dimension, got ", gamma_dims.size());
+  }
+  if (gamma_dims[0] != input_dims[2]) {
+    return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
+                           "Last dimension of gamma and input does not match");
+  }
+
+  if (nullptr != beta) {
+    const auto& beta_dims = beta->Shape().GetDims();
+    if (beta_dims.size() != 1) {
+      return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
+                             "beta is expected to have 1 dimension, got ", beta_dims.size());
+    }
+    if (beta_dims[0] != input_dims[2]) {
+      return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
+                             "Last dimension of beta and input does not match");
+    }
+  }
+
+  if (nullptr != bias) {
+    const auto& bias_dims = bias->Shape().GetDims();
+    if (bias_dims.size() != 1) {
+      return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
+                             "bias is expected to have 1 dimension, got ", bias_dims.size());
+    }
+    if (bias_dims[0] != input_dims[2]) {
+      return ORT_MAKE_STATUS(ONNXRUNTIME, INVALID_ARGUMENT,
+                             "Last dimension of bias and input does not match");
+    }
+  }
+
+  int64_t batch_size = input_dims[0];
+  int64_t sequence_length = input_dims[1];
+  int64_t hidden_size = input_dims[2];
+  int64_t task_count = batch_size * sequence_length;
+
+  const float* input_data = input->Data<float>();
+  const float* skip_data = skip->Data<float>();
+  const float* gamma_data = gamma->Data<float>();
+  const float* beta_data = beta == nullptr ? nullptr : beta->Data<float>();
+  const float* bias_data = bias == nullptr ? nullptr : bias->Data<float>();
+
+  float* output_data = output->MutableData<float>();
+
+  concurrency::ThreadPool::TryBatchParallelFor(p_ctx->GetOperatorThreadPool(), static_cast<int32_t>(task_count),
+                                               [&](ptrdiff_t task_idx) {
+                                                 const float* p_input = input_data + task_idx * hidden_size;
+                                                 const float* p_skip = skip_data + task_idx * hidden_size;
+                                                 float* p_output = output_data + task_idx * hidden_size;
+                                                
+                                                 // NEW
+                                                 MlasComputeLayerNorm(
+                                                     p_input,
+                                                     p_skip,
+                                                     bias_data,
+                                                     epsilon_,
+                                                     gamma_data,
+                                                     beta_data,
+                                                     p_output,
+                                                     hidden_size
+                                                 );
+                                               }
+                                              , 0);
 
   return Status::OK();
 }

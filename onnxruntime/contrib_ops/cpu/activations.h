@@ -77,16 +77,20 @@ class Gelu : public OpKernel {
           T* p_output = output_data + start;
           int64_t count = std::min(length_per_task, elem_count - start);
 
-          for (int64_t i = 0; i < count; i++) {
-            T value = p_input[i];
-            p_output[i] = value * static_cast<T>(M_SQRT1_2);
-          }
+          //// OLD
+          //for (int64_t i = 0; i < count; i++) {
+          //  T value = p_input[i];
+          //  p_output[i] = value * static_cast<T>(M_SQRT1_2);
+          //}
 
-          MlasComputeErf(p_output, p_output, count);
+          //MlasComputeErf(p_output, p_output, count);
 
-          for (int64_t i = 0; i < count; i++) {
-            p_output[i] = 0.5f * p_input[i] * (p_output[i] + 1.0f);
-          }
+          //for (int64_t i = 0; i < count; i++) {
+          //  p_output[i] = 0.5f * p_input[i] * (p_output[i] + 1.0f);
+          //}
+          
+          // NEW
+          MlasComputeGelu(p_input, p_output, count, nullptr);
         },
         0);
     return Status::OK();

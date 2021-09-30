@@ -102,6 +102,40 @@ bool GemmPackBFp32(const OpKernelInfo& info,
   return true;
 }
 
+//----------------
+bool GemmPackBFp32KN(const OpKernelInfo& info,
+                   const Tensor& tensor_b,
+                   bool trans_b,
+                   BufferUniquePtr& packed_b,
+                   TensorShape& b_shape, size_t StrideK) {
+  // Only handle the common case of a 2D weight matrix. Additional matrices
+  // could be handled by stacking the packed buffers.
+  if (tensor_b.Shape().NumDimensions() != 2) {
+    return false;
+  }
+  b_shape = tensor_b.Shape();
+
+  const size_t K = trans_b ? static_cast<size_t>(b_shape[1]) : static_cast<size_t>(b_shape[0]);
+  const size_t N = trans_b ? static_cast<size_t>(b_shape[0]) : static_cast<size_t>(b_shape[1]);
+
+  const size_t packed_b_size = MlasGemmPackBSize(N, K);
+  if (packed_b_size == 0) {
+    return false;
+  }
+
+  auto alloc = info.GetAllocator(0, OrtMemTypeDefault);
+  auto* packed_b_data = alloc->Alloc(packed_b_size);
+  packed_b = BufferUniquePtr(packed_b_data, BufferDeleter(alloc));
+  MlasGemmPackBKN(trans_b ? CblasTrans : CblasNoTrans,
+                N,
+                K,
+                tensor_b.Data<float>(),
+                trans_b ? K : N,
+                packed_b_data, StrideK);
+  return true;
+}
+//================
+
 template <typename T>
 static void GemmBroadcastBias(int64_t M, int64_t N, float beta,
                               const T* c_data, const TensorShape* c_shape,

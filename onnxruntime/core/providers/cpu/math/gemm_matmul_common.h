@@ -13,4 +13,10 @@ bool GemmPackBFp32(const OpKernelInfo& info,
                    BufferUniquePtr& packed_b,
                    TensorShape& b_shape);
 
+bool GemmPackBFp32KN(const OpKernelInfo& info,
+                   const Tensor& tensor_b,
+                   bool trans_b,
+                   BufferUniquePtr& packed_b,
+                   TensorShape& b_shape, size_t StrideK);
+
 };  // namespace onnxruntime

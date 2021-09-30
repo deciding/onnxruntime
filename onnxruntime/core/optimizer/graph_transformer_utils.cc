@@ -188,6 +188,9 @@ std::vector<std::unique_ptr<GraphTransformer>> GenerateTransformers(
       transformers.emplace_back(std::make_unique<AttentionFusion>(cpu_cuda_rocm_eps));
       transformers.emplace_back(std::make_unique<EmbedLayerNormFusion>(cpu_cuda_rocm_eps));
 
+      //mine
+      transformers.emplace_back(std::make_unique<MatMulBiasFusion>(cpu_ep));
+
       transformers.emplace_back(std::make_unique<BiasDropoutFusion>(cuda_rocm_eps));
       transformers.emplace_back(std::make_unique<MatmulTransposeFusion>(cpu_cuda_rocm_eps));
       transformers.emplace_back(std::make_unique<BiasGeluFusion>(cpu_cuda_rocm_eps));
@@ -196,8 +199,6 @@ std::vector<std::unique_ptr<GraphTransformer>> GenerateTransformers(
 
       transformers.emplace_back(std::make_unique<FastGeluFusion>(cpu_cuda_rocm_eps));
 
-      // my matmul bias
-      transformers.emplace_back(std::make_unique<MatMulBiasFusion>(cpu_ep));
       transformers.emplace_back(std::make_unique<MatMulScaleFusion>(cpu_cuda_rocm_eps));
 
       // GeluApproximation has side effects which may change results. It needs to be manually enabled,

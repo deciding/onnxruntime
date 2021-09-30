@@ -235,6 +235,8 @@ Status Attention<T>::PrePack(const Tensor& weights, int input_idx, bool& is_pack
 
   for (size_t i = 0; i < loop_len; i++) {
     MlasGemmPackB(CblasNoTrans, head_size, input_hidden_size, weights_data, hidden_size_x3, packed_weights_data);
+    // CHANGE1: StrideK
+    //MlasGemmPackBKN(CblasNoTrans, head_size, input_hidden_size, weights_data, hidden_size_x3, packed_weights_data, 768);
     packed_weights_data += packed_weights_size_;
     weights_data += head_size;
   }
@@ -364,6 +366,319 @@ Status Attention<T>::Compute(OpKernelContext* context) const {
   return ApplyAttention(Q, K, V, mask_index, past, output,
                         batch_size, sequence_length,
                         head_size, hidden_size, context);
+}
+
+// TODO: currently only for simple self attention without previous frames result
+template<>
+Status Attention<float>::Compute(OpKernelContext* context) const {
+    const Tensor* input = context->Input<Tensor>(0);
+  const Tensor* weights = packed_weights_ ? nullptr : context->Input<Tensor>(1);
+  const Tensor* bias = context->Input<Tensor>(2);
+  const Tensor* mask_index = context->Input<Tensor>(3);
+  const Tensor* past = context->Input<Tensor>(4);
+
+  const TensorShape& weights_shape = (weights ? weights->Shape() : weight_shape_);
+  ORT_RETURN_IF_ERROR(CheckInputs(input->Shape(),
+                                  weights_shape,
+                                  bias->Shape(),
+                                  mask_index,
+                                  past));
+
+  const auto& shape = input->Shape().GetDims();
+  const int batch_size = static_cast<int>(shape[0]);
+  const int sequence_length = static_cast<int>(shape[1]);
+  const int input_hidden_size = static_cast<int>(shape[2]);
+
+  const auto& weights_dims = weights_shape.GetDims();
+  const int hidden_size = static_cast<int>(weights_dims[1]) / 3;
+  const int head_size = hidden_size / num_heads_;
+
+  std::vector<int64_t> output_shape(3);
+  output_shape[0] = shape[0];
+  output_shape[1] = shape[1];
+  output_shape[2] = static_cast<int64_t>(hidden_size);
+  Tensor* output = context->Output(0, output_shape);
+
+  constexpr size_t element_size = sizeof(float);
+
+  AllocatorPtr allocator;
+  ORT_RETURN_IF_ERROR(context->GetTempSpaceAllocator(&allocator));
+
+  auto* tp = context->GetOperatorThreadPool();
+  // Compute Q, K, V
+  // gemm_data(BS, 3NH) = input(BS, D) x weights(D, 3NH) + bias(3NH)
+  // D (input_hidden_size) is hidden dimension of input, where D could be larger than hidden_size (NH) when model is pruned.
+  auto gemm_data = allocator->Alloc(SafeInt<size_t>(batch_size) * sequence_length * 3 * hidden_size * element_size);
+  BufferUniquePtr gemm_buffer(gemm_data, BufferDeleter(allocator));
+
+  auto Q = reinterpret_cast<float*>(gemm_data);
+  auto K = Q + static_cast<size_t>(batch_size) * sequence_length * hidden_size;
+  auto V = K + static_cast<size_t>(batch_size) * sequence_length * hidden_size;
+  float* QKV[3] = {Q, K, V};
+
+  {
+    const int loop_len = 3 * batch_size * num_heads_;
+    const auto* input_data = input->template Data<float>();
+    const auto* weights_data = weights ? weights->template Data<float>() : nullptr;
+    const auto* bias_data = bias->template Data<float>();
+
+    const double cost =
+        static_cast<double>(sequence_length) * static_cast<double>(head_size) * static_cast<double>(input_hidden_size);
+    ThreadPool::TryParallelFor(tp, loop_len, cost, [&](std::ptrdiff_t begin, std::ptrdiff_t end) {
+      for (std::ptrdiff_t i = begin; i != end; ++i) {
+        const int batch_index = static_cast<int>((i / 3) / num_heads_);
+        const int head_index = static_cast<int>((i / 3) % num_heads_);
+        const int qkv_index = static_cast<int>(i % 3); // 041
+
+        int input_offset = batch_index * sequence_length * input_hidden_size;
+        int weights_offset = qkv_index * hidden_size + head_index * head_size;
+        float* qkv_dest = QKV[qkv_index];
+        int qkv_offset = (batch_index * num_heads_ + head_index) * (sequence_length * head_size); // 0 1024 32768
+
+        // TODO!! memcpy here makes it not worthwhile to use Gemm batch. Possible to post process?
+        // broadcast 3NH -> (3.B.N.S.H)
+        const float* broadcast_data_src = bias_data + weights_offset;
+        float* broadcast_data_dest = QKV[qkv_index] + qkv_offset;
+        for (int seq_index = 0; seq_index < sequence_length; seq_index++) {
+          memcpy(broadcast_data_dest, broadcast_data_src, head_size * sizeof(float));
+          broadcast_data_dest += head_size;
+        }
+        // 128 64 768, 0, 0.10000001, 768, 0.000778210117 196608, 0.00011189028 32768, 64
+        //                   original           transposed            iteration
+        // A: input          (BxSxD)            (B.)S x D             S x D
+        // B: weights        (Dx3xNxH)          D x (3.N.)H           D x H
+        // C: QKV[qkv_index] (3xBxNxSxH)        (3.B.N.)S x H         S x H
+        if (packed_weights_) {
+          const auto* packed_weight =
+              static_cast<const uint8_t*>(packed_weights_.get()) + packed_weights_size_ * (weights_offset / head_size);
+          MlasGemm(
+              CblasNoTrans,               // TransA = no
+              sequence_length,            // M      = S
+              head_size,                  // N      = H
+              input_hidden_size,          // K      = D
+              1.0f,                       // alpha
+              input_data + input_offset,  // A
+              input_hidden_size,          // lda    = D
+              packed_weight,              // B
+              1.0f,                       // beta
+              qkv_dest + qkv_offset,      // C
+              head_size,                  // ldc
+              nullptr);                   // use single-thread
+
+          // CHANGE1 : StrideK
+          //MLAS_SGEMM_DATA_PARAMS dp;dp.BIsPacked = true;
+					//dp.A = input_data + input_offset; dp.lda = input_hidden_size;dp.alpha = 1.0f;
+					//dp.B = reinterpret_cast<const float*>(packed_weight);dp.ldb = 0;dp.beta = 1.0f;
+					//dp.C = qkv_dest + qkv_offset;dp.ldc = head_size;
+					////dp.Bias = bias + weights_offset;
+					//MlasGemmBatchKN(CblasNoTrans, CblasTrans, sequence_length, head_size, input_hidden_size, &dp, 1, nullptr,
+					//	768, 128, 1, sequence_length >= head_size);
+        } else {
+          math::GemmEx<float, ThreadPool>(
+              CblasNoTrans,                   // TransA = no
+              CblasNoTrans,                   // TransB = no
+              sequence_length,                // M      = S
+              head_size,                      // N      = H
+              input_hidden_size,              // K      = D
+              1.0f,                           // alpha
+              input_data + input_offset,      // A
+              input_hidden_size,              // lda    = D
+              weights_data + weights_offset,  // B
+              3 * hidden_size,                // ldb    = 3NH
+              1.0f,                           // beta
+              qkv_dest + qkv_offset,          // C
+              head_size,                      // ldc
+              nullptr                         // use single-thread
+          );
+        }
+      }
+    });
+  }
+
+  //// Compute the attention score and apply the score to V
+  //return ApplyAttention<float>(Q, K, V, mask_index, past, output,
+  //                      batch_size, sequence_length,
+  //                      head_size, hidden_size, context);
+  
+  // Expand
+  int past_sequence_length = 0;
+  //Tensor* present = GetPresent(context, past, batch_size, head_size, sequence_length, past_sequence_length);
+
+  // Total sequence length including that of past state: S* = S' + S
+  const int all_sequence_length = past_sequence_length + sequence_length;
+
+  // Compute the attention score. It does 2 things:
+  //         I. attention_probs(B, N, S, S*) = 1/sqrt(H) x Q(B, N, S, H) x K'(B, N, S*, H -> B, N, H, S*) +
+  //                                           1 x mask_data(B, N, S, S*)
+  //         II.attention_probs(B, N, S, S*) = Softmax(attention_probs)
+  size_t attention_probs_bytes = SafeInt<size_t>(batch_size) * num_heads_ * sequence_length * all_sequence_length * sizeof(float);
+  auto attention_probs = allocator->Alloc(attention_probs_bytes);
+  BufferUniquePtr scratch_buffer(attention_probs, BufferDeleter(allocator));
+
+  // Init Mask
+  void* mask_data = nullptr;
+  if (mask_index != nullptr || (is_unidirectional_ && sequence_length > 1)) {
+    size_t mask_data_bytes = SafeInt<size_t>(batch_size) * sequence_length * all_sequence_length * sizeof(float);
+    mask_data = allocator->Alloc(mask_data_bytes);
+    memset(mask_data, 0, mask_data_bytes);
+  }
+  BufferUniquePtr mask_data_buffer(mask_data, BufferDeleter(allocator));
+  const int32_t* mask_index_data = mask_index != nullptr ? mask_index->template Data<int32_t>() : nullptr;
+  const std::vector<int64_t>* mask_index_dims = mask_index != nullptr ? &(mask_index->Shape().GetDims()) : nullptr;
+
+  //const T* past_data = past != nullptr ? past->template Data<T>() : nullptr;
+  //T* present_data = present != nullptr ? present->template MutableData<T>() : nullptr;
+
+  // mask_index --> mask_index_data, convert attention_probs, mask_data
+  //ComputeAttentionProbs<float>(static_cast<float*>(attention_probs), Q, K,
+  //                         mask_index_data, mask_index_dims, static_cast<float*>(mask_data),
+  //                         batch_size, sequence_length, past_sequence_length, head_size,
+  //                         nullptr, nullptr, tp);
+  
+  const size_t input_chunk_length = static_cast<size_t>(sequence_length) * head_size;      // S x H
+  //const size_t past_chunk_length = static_cast<size_t>(past_sequence_length) * head_size;  // S' x H
+  //const size_t present_chunk_length = past_chunk_length + input_chunk_length;              // S* x H
+
+  {
+    if (mask_data != nullptr) {
+      PrepareMask(mask_index_data, mask_index_dims, static_cast<float*>(mask_data), is_unidirectional_, batch_size, sequence_length, past_sequence_length);
+    } else {  // no any mask
+      memset(attention_probs, 0, static_cast<size_t>(batch_size) * num_heads_ * sequence_length * all_sequence_length * sizeof(float));
+    }
+
+    const int loop_len = batch_size * num_heads_;
+    const float alpha = 1.0f / sqrt(static_cast<float>(head_size));
+
+    // The cost of Gemm
+    const double cost = static_cast<double>(head_size) * sequence_length * all_sequence_length;
+
+    // CHANGE3: VxAtt
+    auto out_tmp_data =
+      allocator->Alloc(SafeInt<size_t>(batch_size) * num_heads_ * sequence_length * head_size * sizeof(float));
+    BufferUniquePtr out_tmp_buffer(out_tmp_data, BufferDeleter(allocator));
+    float* tmp_buffer = static_cast<float*>(out_tmp_data);
+    float* output_data = output->template MutableData<float>();
+
+
+    ThreadPool::TryParallelFor(tp, loop_len, cost, [&](std::ptrdiff_t begin, std::ptrdiff_t end) {
+      for (std::ptrdiff_t i = begin; i != end; ++i) {
+        const std::ptrdiff_t batch_index = i / num_heads_;
+
+        MLAS_SGEMM_DATA_PARAMS dp;
+
+        // CHANGE5: MMM mask
+        // broadcast mask data: (Bx)SxS* -> (BxNx)SxS*
+        if (mask_data != nullptr) {
+          const float* broadcast_data_src = reinterpret_cast<float*>(mask_data) + batch_index * sequence_length * all_sequence_length;
+          float* broadcast_data_dest = reinterpret_cast<float*>(attention_probs) + sequence_length * all_sequence_length * i;
+          memcpy(broadcast_data_dest, broadcast_data_src, sequence_length * all_sequence_length * sizeof(float));
+        }
+        const float* k = K + input_chunk_length * i;
+        math::Gemm<float, ThreadPool>(CblasNoTrans, CblasTrans, sequence_length, all_sequence_length, head_size, alpha,
+                                  Q + input_chunk_length * i, k, 1.0,
+                                  reinterpret_cast<float*>(attention_probs) + sequence_length * all_sequence_length * i, nullptr);
+        // CHANGE2: softmax
+        const int sN = sequence_length;
+        const int sD = all_sequence_length;
+        MlasComputeSoftmax(
+          reinterpret_cast<float*>(attention_probs) + sequence_length * all_sequence_length * i,
+          reinterpret_cast<float*>(attention_probs) + sequence_length * all_sequence_length * i,
+          sN, sD, false, nullptr);
+
+        // CHANGE3: VxAtt
+        const float* v = V + input_chunk_length * i;
+        float* current_tmp_data = reinterpret_cast<float*>(tmp_buffer) + input_chunk_length * i;
+        math::MatMul<float>(sequence_length, head_size, all_sequence_length,
+                        static_cast<float*>(attention_probs) + sequence_length * all_sequence_length * i,
+                        v, current_tmp_data, nullptr);
+        // transpose: out(B, S, N, H) = transpose out_tmp(B, N, S, H)
+        //const int batch_index = static_cast<int>(i / num_heads_);
+        const int head_index = static_cast<int>(i % num_heads_);
+        float* src = current_tmp_data;
+        float* dest = output_data + (batch_index * sequence_length * num_heads_ + head_index) * head_size;
+        const auto bytes_to_copy = SafeInt<size_t>(head_size) * sizeof(float);
+        for (int j = 0; j < sequence_length; j++) {
+          memcpy(dest, src, bytes_to_copy);
+          src += head_size;
+          dest += hidden_size;
+        }
+
+        //// CHANGE4: save res mem
+        //dp.A = static_cast<float*>(attention_probs) + sequence_length * all_sequence_length * i;dp.lda = all_sequence_length;dp.alpha = 1.f;
+        //dp.B = V + all_sequence_length*head_size*i;dp.ldb = head_size;dp.beta = 0.f;
+        //const int head_index = static_cast<int>(i % num_heads_);
+        //dp.C = output_data + (batch_index * sequence_length * num_heads_ + head_index) * head_size;dp.ldc = hidden_size;
+        //MlasGemmBatch(CblasNoTrans, CblasNoTrans, sequence_length, head_size, all_sequence_length, &dp, 1, nullptr);
+      }
+    });
+  }
+
+  // CHANGE2: softmax
+  //  attention_probs(B, N, S, S*) = Softmax(attention_probs)
+  //{
+  //  const int N = batch_size * num_heads_ * sequence_length;
+  //  const int D = all_sequence_length;
+  //  ComputeAttentionSoftmaxInplace(static_cast<float*>(attention_probs), N, D, tp);
+  //}
+
+
+  // CHANGE3: VxAtt
+  //// Compute the attentionScore * Value. It does: out_tmp(B, N, S, H) = attention_probs(B, N, S, S*) x V(B, N, S*, H)
+  //auto out_tmp_data =
+  //    allocator->Alloc(SafeInt<size_t>(batch_size) * num_heads_ * sequence_length * head_size * sizeof(float));
+  //BufferUniquePtr out_tmp_buffer(out_tmp_data, BufferDeleter(allocator));
+
+
+  //// output --> output_data, convert attention_probs V 
+  ////ComputeVxAttentionScore(output->template MutableData<float>(), static_cast<float*>(out_tmp_data), static_cast<const float*>(attention_probs), static_cast<const float*>(V),
+  ////                        batch_size, sequence_length, past_sequence_length, head_size, hidden_size,
+  ////                        nullptr, nullptr, tp);
+  //float* output_data = output->template MutableData<float>();
+  //float* tmp_buffer = static_cast<float*>(out_tmp_data);
+  
+  ////const size_t input_chunk_length = static_cast<size_t>(sequence_length * head_size);      // S x H
+  ////const size_t past_chunk_length = static_cast<size_t>(past_sequence_length * head_size);  // S' x H
+  ////const size_t present_chunk_length = past_chunk_length + input_chunk_length;              // S* x H
+
+  //// Move the pointer of past and present to start of v values.
+  ////if (nullptr != past) {
+  ////  past += batch_size * num_heads_ * past_sequence_length * head_size;
+  ////}
+  ////if (nullptr != present) {
+  ////  present += batch_size * num_heads_ * all_sequence_length * head_size;
+  ////}
+
+  //const double cost =
+  //    static_cast<double>(sequence_length) * static_cast<double>(head_size) * static_cast<double>(sequence_length);
+
+  //ThreadPool::TryParallelFor(tp, batch_size * num_heads_, cost, [&](std::ptrdiff_t begin, std::ptrdiff_t end) {
+  //  for (std::ptrdiff_t i = begin; i != end; ++i) {
+  //    const float* v = V + input_chunk_length * i;
+  //    //if (nullptr != present) {
+  //    //  // concatenate past_V and V: (BxNx)S'xH, (BxNx)SxH -> (BxNx)S*xH
+  //    //  v = ConcatStateChunk(past, v, present, past_chunk_length, present_chunk_length, i);
+  //    //}
+
+  //    float* current_tmp_data = reinterpret_cast<float*>(tmp_buffer) + input_chunk_length * i;
+  //    math::MatMul<float>(sequence_length, head_size, all_sequence_length,
+  //                    static_cast<float*>(attention_probs) + sequence_length * all_sequence_length * i,
+  //                    v, current_tmp_data, nullptr);
+
+  //    // transpose: out(B, S, N, H) = transpose out_tmp(B, N, S, H)
+  //    const int batch_index = static_cast<int>(i / num_heads_);
+  //    const int head_index = static_cast<int>(i % num_heads_);
+  //    float* src = current_tmp_data;
+  //    float* dest = output_data + (batch_index * sequence_length * num_heads_ + head_index) * head_size;
+  //    const auto bytes_to_copy = SafeInt<size_t>(head_size) * sizeof(float);
+  //    for (int j = 0; j < sequence_length; j++) {
+  //      memcpy(dest, src, bytes_to_copy);
+  //      src += head_size;
+  //      dest += hidden_size;
+  //    }
+  //  }
+  //});
+
+  return Status::OK();
 }
 
 }  // namespace contrib
