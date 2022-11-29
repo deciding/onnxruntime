@@ -24,6 +24,7 @@ Abstract:
 #include "FgemmKernelBiasPostAvx512FCommon.h"
 #include "FgemmKernelHalfBiasAvx512FCommon.h"
 #include "FgemmKernelBiasMatAvx512FCommon.h"
+#include "FgemmKernelAllM1Avx512FCommon.h"
 
         .intel_syntax noprefix
 
@@ -42,5 +43,7 @@ FgemmKernelBiasPostAvx512FFunction MlasGemmFloatKernelBiasPostAvx512F
 FgemmKernelHalfBiasAvx512FFunction MlasGemmFloatKernelHalfBiasAvx512F
 
 FgemmKernelBiasMatAvx512FFunction MlasGemmFloatKernelBiasMatAvx512F
+
+FgemmKernelAllM1Avx512FFunction MlasGemmFloatKernelAllM1Avx512F
 
         .end

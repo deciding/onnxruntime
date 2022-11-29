@@ -234,9 +234,10 @@ Status Attention<T>::PrePack(const Tensor& weights, int input_idx, bool& is_pack
   packed_weights_ = BufferUniquePtr(packed_weights_data, BufferDeleter(alloc));
 
   for (size_t i = 0; i < loop_len; i++) {
-    MlasGemmPackB(CblasNoTrans, head_size, input_hidden_size, weights_data, hidden_size_x3, packed_weights_data);
+    //MlasGemmPackB(CblasNoTrans, head_size, input_hidden_size, weights_data, hidden_size_x3, packed_weights_data);
     // CHANGE1: StrideK
-    //MlasGemmPackBKN(CblasNoTrans, head_size, input_hidden_size, weights_data, hidden_size_x3, packed_weights_data, 768);
+    // CHANGE6: QKV bias
+    MlasGemmPackBKN(CblasNoTrans, head_size, input_hidden_size, weights_data, hidden_size_x3, packed_weights_data, 768);
     packed_weights_data += packed_weights_size_;
     weights_data += head_size;
   }
@@ -435,42 +436,47 @@ Status Attention<float>::Compute(OpKernelContext* context) const {
         float* qkv_dest = QKV[qkv_index];
         int qkv_offset = (batch_index * num_heads_ + head_index) * (sequence_length * head_size); // 0 1024 32768
 
-        // TODO!! memcpy here makes it not worthwhile to use Gemm batch. Possible to post process?
-        // broadcast 3NH -> (3.B.N.S.H)
-        const float* broadcast_data_src = bias_data + weights_offset;
-        float* broadcast_data_dest = QKV[qkv_index] + qkv_offset;
-        for (int seq_index = 0; seq_index < sequence_length; seq_index++) {
-          memcpy(broadcast_data_dest, broadcast_data_src, head_size * sizeof(float));
-          broadcast_data_dest += head_size;
-        }
-        // 128 64 768, 0, 0.10000001, 768, 0.000778210117 196608, 0.00011189028 32768, 64
-        //                   original           transposed            iteration
-        // A: input          (BxSxD)            (B.)S x D             S x D
-        // B: weights        (Dx3xNxH)          D x (3.N.)H           D x H
-        // C: QKV[qkv_index] (3xBxNxSxH)        (3.B.N.)S x H         S x H
+        //// CHANGE6: QKV bias
+        //// TODO!! memcpy here makes it not worthwhile to use Gemm batch. Possible to post process?
+        //// broadcast 3NH -> (3.B.N.S.H)
+        //const float* broadcast_data_src = bias_data + weights_offset;
+        //float* broadcast_data_dest = QKV[qkv_index] + qkv_offset;
+        //for (int seq_index = 0; seq_index < sequence_length; seq_index++) {
+        //  memcpy(broadcast_data_dest, broadcast_data_src, head_size * sizeof(float));
+        //  broadcast_data_dest += head_size;
+        //}
+
         if (packed_weights_) {
           const auto* packed_weight =
               static_cast<const uint8_t*>(packed_weights_.get()) + packed_weights_size_ * (weights_offset / head_size);
-          MlasGemm(
-              CblasNoTrans,               // TransA = no
-              sequence_length,            // M      = S
-              head_size,                  // N      = H
-              input_hidden_size,          // K      = D
-              1.0f,                       // alpha
-              input_data + input_offset,  // A
-              input_hidden_size,          // lda    = D
-              packed_weight,              // B
-              1.0f,                       // beta
-              qkv_dest + qkv_offset,      // C
-              head_size,                  // ldc
-              nullptr);                   // use single-thread
 
-          // CHANGE1 : StrideK
+          //MlasGemm(
+          //    CblasNoTrans,               // TransA = no
+          //    sequence_length,            // M      = S
+          //    head_size,                  // N      = H
+          //    input_hidden_size,          // K      = D
+          //    1.0f,                       // alpha
+          //    input_data + input_offset,  // A
+          //    input_hidden_size,          // lda    = D
+          //    packed_weight,              // B
+          //    1.0f,                       // beta
+          //    qkv_dest + qkv_offset,      // C
+          //    head_size,                  // ldc
+          //    nullptr);                   // use single-thread
+          // CHANGE6: QKV bias
+          MLAS_SGEMM_DATA_PARAMS dp;dp.BIsPacked = true;
+          dp.A = input_data + input_offset; dp.lda = input_hidden_size;dp.alpha = 1.0f;
+          dp.B = reinterpret_cast<const float*>(packed_weight);dp.ldb = 0;dp.beta = 1.0f;
+          dp.C = qkv_dest + qkv_offset;dp.ldc = head_size;
+          dp.Bias = bias_data + weights_offset;
+          MlasGemmBatchKN(CblasNoTrans, CblasTrans, sequence_length, head_size, input_hidden_size, &dp, 1, nullptr,
+            768, 128, 1, sequence_length >= head_size);
+
+          //// CHANGE1 : StrideK
           //MLAS_SGEMM_DATA_PARAMS dp;dp.BIsPacked = true;
 					//dp.A = input_data + input_offset; dp.lda = input_hidden_size;dp.alpha = 1.0f;
 					//dp.B = reinterpret_cast<const float*>(packed_weight);dp.ldb = 0;dp.beta = 1.0f;
 					//dp.C = qkv_dest + qkv_offset;dp.ldc = head_size;
-					////dp.Bias = bias + weights_offset;
 					//MlasGemmBatchKN(CblasNoTrans, CblasTrans, sequence_length, head_size, input_hidden_size, &dp, 1, nullptr,
 					//	768, 128, 1, sequence_length >= head_size);
         } else {
@@ -552,12 +558,12 @@ Status Attention<float>::Compute(OpKernelContext* context) const {
     // The cost of Gemm
     const double cost = static_cast<double>(head_size) * sequence_length * all_sequence_length;
 
-    // CHANGE3: VxAtt
-    auto out_tmp_data =
-      allocator->Alloc(SafeInt<size_t>(batch_size) * num_heads_ * sequence_length * head_size * sizeof(float));
-    BufferUniquePtr out_tmp_buffer(out_tmp_data, BufferDeleter(allocator));
-    float* tmp_buffer = static_cast<float*>(out_tmp_data);
     float* output_data = output->template MutableData<float>();
+    //// CHANGE3: VxAtt
+    //auto out_tmp_data =
+    //  allocator->Alloc(SafeInt<size_t>(batch_size) * num_heads_ * sequence_length * head_size * sizeof(float));
+    //BufferUniquePtr out_tmp_buffer(out_tmp_data, BufferDeleter(allocator));
+    //float* tmp_buffer = static_cast<float*>(out_tmp_data);
 
 
     ThreadPool::TryParallelFor(tp, loop_len, cost, [&](std::ptrdiff_t begin, std::ptrdiff_t end) {
@@ -585,30 +591,28 @@ Status Attention<float>::Compute(OpKernelContext* context) const {
           reinterpret_cast<float*>(attention_probs) + sequence_length * all_sequence_length * i,
           sN, sD, false, nullptr);
 
-        // CHANGE3: VxAtt
-        const float* v = V + input_chunk_length * i;
-        float* current_tmp_data = reinterpret_cast<float*>(tmp_buffer) + input_chunk_length * i;
-        math::MatMul<float>(sequence_length, head_size, all_sequence_length,
-                        static_cast<float*>(attention_probs) + sequence_length * all_sequence_length * i,
-                        v, current_tmp_data, nullptr);
-        // transpose: out(B, S, N, H) = transpose out_tmp(B, N, S, H)
-        //const int batch_index = static_cast<int>(i / num_heads_);
-        const int head_index = static_cast<int>(i % num_heads_);
-        float* src = current_tmp_data;
-        float* dest = output_data + (batch_index * sequence_length * num_heads_ + head_index) * head_size;
-        const auto bytes_to_copy = SafeInt<size_t>(head_size) * sizeof(float);
-        for (int j = 0; j < sequence_length; j++) {
-          memcpy(dest, src, bytes_to_copy);
-          src += head_size;
-          dest += hidden_size;
-        }
-
-        //// CHANGE4: save res mem
-        //dp.A = static_cast<float*>(attention_probs) + sequence_length * all_sequence_length * i;dp.lda = all_sequence_length;dp.alpha = 1.f;
-        //dp.B = V + all_sequence_length*head_size*i;dp.ldb = head_size;dp.beta = 0.f;
+        //// CHANGE3: VxAtt
+        //const float* v = V + input_chunk_length * i;
+        //float* current_tmp_data = reinterpret_cast<float*>(tmp_buffer) + input_chunk_length * i;
+        //math::MatMul<float>(sequence_length, head_size, all_sequence_length,
+        //                static_cast<float*>(attention_probs) + sequence_length * all_sequence_length * i,
+        //                v, current_tmp_data, nullptr);
         //const int head_index = static_cast<int>(i % num_heads_);
-        //dp.C = output_data + (batch_index * sequence_length * num_heads_ + head_index) * head_size;dp.ldc = hidden_size;
-        //MlasGemmBatch(CblasNoTrans, CblasNoTrans, sequence_length, head_size, all_sequence_length, &dp, 1, nullptr);
+        //float* src = current_tmp_data;
+        //float* dest = output_data + (batch_index * sequence_length * num_heads_ + head_index) * head_size;
+        //const auto bytes_to_copy = SafeInt<size_t>(head_size) * sizeof(float);
+        //for (int j = 0; j < sequence_length; j++) {
+        //  memcpy(dest, src, bytes_to_copy);
+        //  src += head_size;
+        //  dest += hidden_size;
+        //}
+
+        // CHANGE4: save res mem
+        dp.A = static_cast<float*>(attention_probs) + sequence_length * all_sequence_length * i;dp.lda = all_sequence_length;dp.alpha = 1.f;
+        dp.B = V + all_sequence_length*head_size*i;dp.ldb = head_size;dp.beta = 0.f;
+        const int head_index = static_cast<int>(i % num_heads_);
+        dp.C = output_data + (batch_index * sequence_length * num_heads_ + head_index) * head_size;dp.ldc = hidden_size;
+        MlasGemmBatch(CblasNoTrans, CblasNoTrans, sequence_length, head_size, all_sequence_length, &dp, 1, nullptr);
       }
     });
   }

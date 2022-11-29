@@ -288,6 +288,7 @@ Return Value:
 
                     this->GemmFloatKernel = MlasGemmFloatKernelAvx512F;
                     // NOTE: assign
+                    this->GemmFloatKernelAllM1 = MlasGemmFloatKernelAllM1Avx512F;
                     this->GemmFloatKernelBias = MlasGemmFloatKernelBiasAvx512F;
                     this->GemmFloatKernelBiasPost = MlasGemmFloatKernelBiasPostAvx512F;
                     this->GemmFloatKernelHalfBias = MlasGemmFloatKernelHalfBiasAvx512F;

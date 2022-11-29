@@ -63,6 +63,7 @@ class Gelu : public OpKernel {
     const T* input_data = input->template Data<T>();
 
     Tensor* output = context->Output(0, input->Shape());
+    //output = output + 1; // temp
     T* output_data = output->template MutableData<T>();
 
     concurrency::ThreadPool* tp = context->GetOperatorThreadPool();

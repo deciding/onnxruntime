@@ -562,6 +562,21 @@ MlasGemmBatchKN(
 
 void
 MLASCALL
+MlasGemmBatchAll(
+    CBLAS_TRANSPOSE TransA,
+    CBLAS_TRANSPOSE TransB,
+    size_t M,
+    size_t N,
+    size_t K,
+    const MLAS_SGEMM_DATA_PARAMS* Data,
+    size_t BatchSize,
+    MLAS_THREADPOOL* ThreadPool,
+    size_t StrideK, size_t StrideN, ptrdiff_t T, 
+    size_t SplitK, size_t SplitN
+    );
+
+void
+MLASCALL
 MlasGemmPackBKN(
     CBLAS_TRANSPOSE TransB,
     size_t N,

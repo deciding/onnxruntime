@@ -1825,6 +1825,10 @@ MlasSgemmOperationKN(
         return;
     }
 
+    // HARDCODE: beta is very small number after passing to threads, might be compiler optimization
+    if (beta < 1e-10){
+        beta = 0.0f;
+    }
     // TODO: special cases
     //
     // Handle the special case of a small M. The data from matrix B is not
@@ -1996,6 +2000,12 @@ MlasSgemmThreadedKN(
         MlasSgemmOperationKN(TransA, TransB, RangeCountM, RangeCountN, K,
             DataParams->alpha, A, lda, B, ldb, DataParams->beta, C, ldc, StrideK, StrideN, Bias, AddMat);
     }
+
+    //// temp
+    //if(N==3072){
+    //    for(size_t i = 0; i< RangeCountM; i++)
+    //        MlasComputeGelu(C+(RangeStartM+i)*ldc+RangeStartN, C+(RangeStartM+i)*ldc+RangeStartN, RangeCountN, nullptr);
+    //}
 }
 
 void
@@ -2072,8 +2082,137 @@ MlasGemmBatchKN(
         ThreadsPerGemm * static_cast<ptrdiff_t>(BatchSize), 
         [=](ptrdiff_t tid)
     {
+        // BUG: Data.beta is 0 now, but changed after into MlasSgemmThreadedKN
         ptrdiff_t GemmIdx = tid / ThreadsPerGemm;
         ptrdiff_t ThreadIdx = tid % ThreadsPerGemm;
+        MlasSgemmThreadedKN(ThreadCountM, ThreadCountN,
+            TransA, TransB, M, N, K, StrideK, StrideN, &(Data[GemmIdx]), ThreadIdx);
+    });
+}
+
+
+//void
+//MlasSgemmThreadedAll(
+//    const ptrdiff_t ThreadCountM,
+//    const ptrdiff_t ThreadCountN,
+//    const ptrdiff_t ThreadCountK,
+//    const CBLAS_TRANSPOSE TransA,
+//    const CBLAS_TRANSPOSE TransB,
+//    const size_t M,
+//    const size_t N,
+//    const size_t K,
+//    const size_t StrideK,
+//    const size_t StrideN,
+//
+//    const MLAS_SGEMM_DATA_PARAMS* DataParams,
+//    ptrdiff_t ThreadId
+//    )
+//{
+//
+//    const ptrdiff_t ThreadIdM = ThreadId / (ThreadCountN*ThreadCountK);
+//    const ptrdiff_t ThreadIdN = ThreadId / ThreadCountK % ThreadCountN;
+//    const ptrdiff_t ThreadIdK = ThreadId % ThreadCountK;
+//
+//    //
+//    // Partition the operation along the M dimension.
+//    //
+//
+//    size_t RangeStartM;
+//    size_t RangeCountM;
+//
+//    MlasPartitionWork(ThreadIdM, ThreadCountM, M, &RangeStartM, &RangeCountM);
+//
+//    //
+//    // Partition the operation along the N dimension.
+//    //
+//
+//    size_t RangeStartN;
+//    size_t RangeCountN;
+//
+//    const size_t BlockedN = (N + MLAS_SGEMM_STRIDEN_THREAD_ALIGN - 1) /
+//        MLAS_SGEMM_STRIDEN_THREAD_ALIGN;
+//
+//    MlasPartitionWork(ThreadIdN, ThreadCountN, BlockedN, &RangeStartN,
+//        &RangeCountN);
+//
+//    RangeStartN *= MLAS_SGEMM_STRIDEN_THREAD_ALIGN;
+//    RangeCountN *= MLAS_SGEMM_STRIDEN_THREAD_ALIGN;
+//
+//    RangeCountN = std::min(N - RangeStartN, RangeCountN);
+//
+//    //
+//    // Partition the operation along the K dimension.
+//    //
+//
+//    size_t RangeStartK;
+//    size_t RangeCountK;
+//
+//    MlasPartitionWork(ThreadIdK, ThreadCountK, K, &RangeStartK, &RangeCountK);
+//
+//    //
+//    // Dispatch the partitioned operation.
+//    //
+//
+//    const size_t lda = DataParams->lda;
+//    const size_t ldc = DataParams->ldc;
+//
+//    const float* A = DataParams->A + RangeStartM * ((TransA == CblasNoTrans) ? lda : 1) + RangeStartK * ((TransA == CblasNoTrans) ? 1 : lda);
+//    float* C = DataParams->C + RangeStartM * ldc + RangeStartN;
+//    const float* Bias = nullptr, *AddMat = nullptr;
+//    if(ThreadIdK == 0){
+//        if(DataParams->Bias)
+//            Bias = DataParams->Bias + RangeStartN;
+//        if(DataParams->Mat)
+//            AddMat = DataParams->Mat + RangeStartM * ldc + RangeStartN;
+//    }
+//
+//    if (DataParams->BIsPacked) {
+//
+//        MlasSgemmPackedOperationAll(TransA, RangeCountM, RangeStartN, RangeCountN, RangeStartK, RangeCountK,
+//            K, DataParams->alpha, A, lda, DataParams->B,
+//            BlockedN * MLAS_SGEMM_STRIDEN_THREAD_ALIGN, DataParams->beta, C, ldc, StrideK, StrideN, Bias, AddMat);
+//
+//    } else {
+//
+//        const size_t ldb = DataParams->ldb;
+//
+//        const float* B = (const float*)DataParams->B + RangeStartN * ((TransB == CblasNoTrans) ? 1 : ldb);
+//
+//        MlasSgemmOperationKN(TransA, TransB, RangeCountM, RangeCountN, K,
+//            DataParams->alpha, A, lda, B, ldb, DataParams->beta, C, ldc, StrideK, StrideN, Bias, AddMat);
+//    }
+//
+//}
+
+void
+MLASCALL
+MlasGemmBatchAll(
+    CBLAS_TRANSPOSE TransA,
+    CBLAS_TRANSPOSE TransB,
+    size_t M,
+    size_t N,
+    size_t K,
+    const MLAS_SGEMM_DATA_PARAMS* Data,
+    size_t BatchSize,
+    MLAS_THREADPOOL* ThreadPool,
+    size_t StrideK, size_t StrideN, ptrdiff_t T, 
+    size_t SplitK, size_t SplitN
+    )
+{
+
+
+    ptrdiff_t ThreadCountN = SplitN;
+    ptrdiff_t ThreadCountM = T / SplitK /SplitN;
+
+
+    MlasTrySimpleParallel(ThreadPool, 
+        T * static_cast<ptrdiff_t>(BatchSize), 
+        [=](ptrdiff_t tid)
+    {
+        ptrdiff_t GemmIdx = tid / T;
+        ptrdiff_t ThreadIdx = tid % T;
+        //MlasSgemmThreadedAll(ThreadCountM, ThreadCountN, ThreadCountK,
+        //    TransA, TransB, M, N, K, StrideK, StrideN, &(Data[GemmIdx]), ThreadIdx);
         MlasSgemmThreadedKN(ThreadCountM, ThreadCountN,
             TransA, TransB, M, N, K, StrideK, StrideN, &(Data[GemmIdx]), ThreadIdx);
     });

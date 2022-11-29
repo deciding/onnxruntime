@@ -113,7 +113,7 @@ Abstract:
 // Define the maximum number of threads supported by this implementation.
 //
 
-#define MLAS_MAXIMUM_THREAD_COUNT                   32
+#define MLAS_MAXIMUM_THREAD_COUNT                   16
 
 //
 // Define the default strides to step through slices of the input matrices.
@@ -549,6 +549,7 @@ extern "C" {
     MLAS_GEMM_FLOAT_KERNEL MlasGemmFloatKernelAvx512F;
 
     // NOTE: import from asm
+    MLAS_GEMM_FLOAT_KERNEL MlasGemmFloatKernelAllM1Avx512F;
     MLAS_GEMM_FLOAT_KERNEL_BIAS MlasGemmFloatKernelBiasAvx512F; // import
     MLAS_GEMM_FLOAT_KERNEL_BIAS MlasGemmFloatKernelBiasPostAvx512F; // import
     MLAS_GEMM_FLOAT_KERNEL_BIAS MlasGemmFloatKernelHalfBiasAvx512F; // import
@@ -773,6 +774,7 @@ struct MLAS_PLATFORM {
 #if defined(MLAS_TARGET_AMD64_IX86)
     MLAS_GEMM_FLOAT_KERNEL* GemmFloatKernel;
     // NOTE: define member, assign it to imported asm in platform.cpp
+    MLAS_GEMM_FLOAT_KERNEL* GemmFloatKernelAllM1;
     MLAS_GEMM_FLOAT_KERNEL_BIAS* GemmFloatKernelBias;
     MLAS_GEMM_FLOAT_KERNEL_BIAS* GemmFloatKernelBiasPost;
     MLAS_GEMM_FLOAT_KERNEL_BIAS* GemmFloatKernelHalfBias;
